@@ -3,8 +3,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerAllTools } from './tools/index.js';
 import { credentialStore } from './credential-store.js';
+import { setApiKey } from './api.js';
 
 async function startStdio() {
+  const apiKey = process.argv[2];
+  if (!apiKey) {
+    console.error('Error: Orderful API key required as first argument.');
+    console.error('Usage: npx orderful <api-key>');
+    process.exit(1);
+  }
+  setApiKey(apiKey);
+
   const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
   registerAllTools(server);
 

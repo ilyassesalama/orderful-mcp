@@ -2,14 +2,19 @@ import { credentialStore } from './credential-store.js';
 
 const BASE_URL = 'https://api.orderful.com';
 
+let cliApiKey: string | undefined;
+
+export function setApiKey(key: string): void {
+  cliApiKey = key;
+}
+
 function getApiKey(): string {
   // HTTP mode: per-request credentials via AsyncLocalStorage
   const store = credentialStore.getStore();
   if (store?.ORDERFUL_API_KEY) return store.ORDERFUL_API_KEY;
-  // Stdio mode: env var fallback
-  const key = process.env.ORDERFUL_API_KEY;
-  if (!key) throw new Error('ORDERFUL_API_KEY environment variable is required.');
-  return key;
+  // Stdio mode: CLI argument
+  if (cliApiKey) return cliApiKey;
+  throw new Error('Orderful API key is required. Pass it as the first argument: `npx orderful <api-key>`');
 }
 
 export async function orderfulApiCall(
