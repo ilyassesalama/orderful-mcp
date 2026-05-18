@@ -1,13 +1,40 @@
 {
-  "name": "orderful-edi-mcp",
+  "name": "orderful",
   "version": "1.0.0",
-  "description": "MCP server for Orderful EDI API",
+  "description": "MCP server for the Orderful EDI API — exposes Orderful's trading-partner, transaction, delivery, and conversion endpoints as MCP tools over stdio or HTTP.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "orderful": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "orderful",
+    "edi",
+    "ai",
+    "claude",
+    "anthropic"
+  ],
+  "author": "Ilyasse Salama",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
