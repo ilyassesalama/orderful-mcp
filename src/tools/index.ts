@@ -48,6 +48,7 @@ import { register as createSftpOutboundChannel } from './communication-channels/
 import { register as listCommunicationChannels } from './communication-channels/list-communication-channels.js';
 
 // Document Relationships
+import { register as getDocumentRelationship } from './document-relationships/get-document-relationship.js';
 import { register as updateDocumentRelationship } from './document-relationships/update-document-relationship.js';
 
 const tools: ToolRegistrar[] = [
@@ -75,6 +76,7 @@ const tools: ToolRegistrar[] = [
   createSftpInboundChannel,
   createSftpOutboundChannel,
   listCommunicationChannels,
+  getDocumentRelationship,
   updateDocumentRelationship,
 ];
 
