@@ -78,7 +78,17 @@ Each user passes **their own** Orderful API key as a `?key=` query parameter on 
 https://your-host.example.com/mcp?key=your-orderful-api-key
 ```
 
-In Claude's **Add custom connector** dialog, paste that full URL (with your key) into the **Remote MCP server URL** field.
+Connecting clients to the hosted server:
+
+- **Claude Code (terminal):**
+
+  ```bash
+  claude mcp add --transport http orderful "https://your-host.example.com/mcp?key=your-orderful-api-key"
+  ```
+
+  (Add `--scope user` to make it available across all your projects.)
+
+- **Claude Desktop / web — Add custom connector dialog:** paste that full URL (with your key) into the **Remote MCP server URL** field.
 
 Requests without a `?key=` parameter are rejected. The endpoint also applies per-IP rate limiting and a 1 MB request size limit. Always run it behind HTTPS (a reverse proxy or your platform's TLS).
 
