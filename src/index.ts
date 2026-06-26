@@ -30,7 +30,7 @@ async function startHttp() {
   const {
     securityHeaders,
     authMiddleware,
-    parseCredentials,
+    getApiKeyFromRequest,
     JSON_LIMIT,
   } = await import('./http-security.js');
 
@@ -41,10 +41,11 @@ async function startHttp() {
   // Authenticated MCP endpoint — fresh server per request (MCP servers are single-connect)
   app.all('/mcp', authMiddleware, async (req, res) => {
     try {
-      const creds = parseCredentials(req);
+      // authMiddleware guarantees a key is present
+      const apiKey = getApiKeyFromRequest(req)!;
 
-      // Run in async context so getApiKey() picks up per-request credentials
-      await credentialStore.run(creds, async () => {
+      // Run in async context so getApiKey() picks up this request's key
+      await credentialStore.run({ ORDERFUL_API_KEY: apiKey }, async () => {
         const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
         registerAllTools(server);
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
