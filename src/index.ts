@@ -38,8 +38,12 @@ async function startHttp() {
   app.use(express.json({ limit: JSON_LIMIT }));
   app.use(securityHeaders);
 
+  // Path the MCP endpoint is mounted at. Defaults to /mcp; override with
+  // MCP_PATH when serving behind a multi-server gateway (e.g. /mcp/orderful).
+  const mcpPath = process.env.MCP_PATH || '/mcp';
+
   // Authenticated MCP endpoint — fresh server per request (MCP servers are single-connect)
-  app.all('/mcp', authMiddleware, async (req, res) => {
+  app.all(mcpPath, authMiddleware, async (req, res) => {
     try {
       // authMiddleware guarantees a key is present
       const apiKey = getApiKeyFromRequest(req)!;
@@ -65,7 +69,7 @@ async function startHttp() {
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
-    console.log(`Orderful EDI MCP server listening on port ${port} (HTTP mode)`);
+    console.log(`Orderful EDI MCP server listening on port ${port} (HTTP mode), MCP endpoint at ${mcpPath}`);
   });
 }
 
