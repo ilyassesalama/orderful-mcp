@@ -72,25 +72,21 @@ This exposes:
 - `POST /mcp` — the MCP endpoint (Streamable HTTP)
 - `GET /health` — health check
 
-Each user passes **their own** Orderful API key as a Bearer token. The server isolates credentials per request, so a single instance can safely serve many users:
+Each user passes **their own** Orderful API key as a `?key=` query parameter on the URL. The server isolates credentials per request, so a single instance can safely serve many users:
 
-```json
-{
-  "mcpServers": {
-    "orderful": {
-      "type": "http",
-      "url": "https://your-host.example.com/mcp",
-      "headers": { "Authorization": "Bearer your-orderful-api-key" }
-    }
-  }
-}
+```
+https://your-host.example.com/mcp?key=your-orderful-api-key
 ```
 
-Requests without a valid `Authorization: Bearer <key>` header are rejected. The endpoint also applies per-IP rate limiting and a 1 MB request size limit. Always run it behind HTTPS (a reverse proxy or your platform's TLS).
+In Claude's **Add custom connector** dialog, paste that full URL (with your key) into the **Remote MCP server URL** field.
+
+Requests without a `?key=` parameter are rejected. The endpoint also applies per-IP rate limiting and a 1 MB request size limit. Always run it behind HTTPS (a reverse proxy or your platform's TLS).
+
+> **Note:** Because this URL contains your API key, treat it like a password — don't share it, and rotate the key in Orderful if a URL leaks. (The key is in the URL because connector UIs only accept a URL, not custom headers.)
 
 ## Getting an API key
 
-Generate an API key from your Orderful dashboard under **Settings → API Keys**. Pass it as the first argument to the `orderful` command (stdio) or as a Bearer token (HTTP). Your key is sent directly to Orderful's API and is never stored or transmitted anywhere else.
+Generate an API key from your Orderful dashboard under **Settings → API Keys**. Pass it as the first argument to the `orderful` command (stdio) or as a `?key=` URL parameter (HTTP). Your key is sent directly to Orderful's API and is never stored or transmitted anywhere else.
 
 ## Tools
 

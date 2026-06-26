@@ -46,14 +46,16 @@ setInterval(() => {
 // ── API key extraction ──────────────────────────
 
 /**
- * Pull the Orderful API key out of the `Authorization: Bearer <key>` header.
- * Returns undefined if absent or malformed.
+ * Resolve the user's Orderful API key from the `?key=<key>` query parameter.
+ *
+ * The key travels in the URL because the target clients (e.g. Claude's
+ * "add custom connector" dialog) only accept a URL and have no field for a
+ * custom header. Returns undefined if absent.
  */
 export function getApiKeyFromRequest(req: Request): string | undefined {
-  const header = req.headers['authorization'];
-  if (!header) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  return match?.[1]?.trim() || undefined;
+  const queryKey = req.query?.key;
+  if (typeof queryKey === 'string' && queryKey.trim()) return queryKey.trim();
+  return undefined;
 }
 
 // ── Security Headers Middleware ──────────────────
@@ -82,7 +84,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   if (!getApiKeyFromRequest(req)) {
-    res.status(401).json({ error: 'Missing or malformed Authorization header. Expected: Authorization: Bearer <orderful-api-key>' });
+    res.status(401).json({ error: 'Missing API key. Append ?key=<your-orderful-api-key> to the URL.' });
     return;
   }
 
