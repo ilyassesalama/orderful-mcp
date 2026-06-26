@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_delivery',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Delivery',
       description:
         'Get delivery details by ID. Returns status (CREATED, SENT, FAILED, DELIVERED), timestamps, and links to approve/fail the delivery.',

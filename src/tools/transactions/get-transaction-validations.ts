@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_transaction_validations',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Transaction Validations',
       description:
         'Get validation results for an Orderful transaction. Returns isValid flag, validation errors with data paths, allowed values, and error descriptions.',

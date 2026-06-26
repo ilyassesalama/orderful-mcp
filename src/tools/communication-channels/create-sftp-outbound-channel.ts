@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_create_sftp_outbound_channel',
     {
+      annotations: { readOnlyHint: false },
       title: 'Create Outbound SFTP/FTP Communication Channel',
       description:
         'Create a new Outbound FTP/SFTP Communication Channel in Orderful for a self-hosted server (you or the trading partner host the SFTP — Orderful downloads files from it to send transactions onward). Use this during migration to recreate outbound SFTP delivery from a source platform (e.g. SPS Commerce). Pair with sps_get_production_connection to retrieve credentials from the source. For partners that use SFTP both ways, also call orderful_create_sftp_inbound_channel.',

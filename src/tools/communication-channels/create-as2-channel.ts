@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_create_as2_channel',
     {
+      annotations: { readOnlyHint: false },
       title: 'Create Inbound AS2 Communication Channel',
       description:
         "Create a new Inbound AS2 Communication Channel in Orderful for a trading partner, including the partner's PEM certificate, AS2 ID, and URL — all in a single POST. The cert MUST be valid for at least 30 days from upload (Orderful rejects shorter expiries). Use this during migration to recreate AS2 connections that were configured on a source platform (e.g. SPS Commerce). Pair with orderful_get_organization to find the ownerId, and with sps_get_production_connection to retrieve the partner's AS2 cert/URL/ID from the source.",

@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_attachment',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Attachment',
       description:
         'Get attachment metadata by ID. Returns the attachment format (x12, json, xml, txt, edifact), description, content URL, and size in bytes.',

@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_update_document_relationship',
     {
+      annotations: { readOnlyHint: false },
       title: 'Update Document Relationship',
       description:
         'Update settings on an existing document-relationship in Orderful (per partner × transaction-type × direction). Sparse PATCH — only fields you specify are changed; everything else is preserved. Common migration uses: enable/disable autoSend, toggle 997 acknowledgments (sendAcks), bind newly-created Communication Channels (test/prod channel IDs), or apply additional config keys via the additionalUpdates escape hatch (e.g. ackTimeout, partnerGuidelineSetId, status). The response returns the full updated relationship.',

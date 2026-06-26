@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_list_relationships',
     {
+      annotations: { readOnlyHint: true },
       title: 'List Relationships',
       description:
         'List all trading partner relationships. Returns sender/receiver details, transaction type, status (BLOCKED, PENDING, SETUP, TEST, READY, LIVE), and auto-send configuration.',

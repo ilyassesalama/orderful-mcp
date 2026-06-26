@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_create_trading_request',
     {
+      annotations: { readOnlyHint: false },
       title: 'Create Trading Request',
       description:
         'Create a new Orderful trading request to establish a trading partnership. Use orderful_search_trading_partner first to get the receiver ISA details.',

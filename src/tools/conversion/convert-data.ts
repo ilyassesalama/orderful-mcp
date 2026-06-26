@@ -11,6 +11,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_convert_data',
     {
+      annotations: { readOnlyHint: true },
       title: 'Convert Data',
       description:
         'Convert data between X12 EDI and JSON formats. Specify the input and output formats and provide the data to convert.',

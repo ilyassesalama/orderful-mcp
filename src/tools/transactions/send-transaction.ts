@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_send_transaction',
     {
+      annotations: { readOnlyHint: false, destructiveHint: true },
       title: 'Send Transaction',
       description:
         'Send an existing transaction to a trading partner (e.g., sending an 850 Purchase Order to NetSuite). This triggers delivery of the transaction to the receiver.',

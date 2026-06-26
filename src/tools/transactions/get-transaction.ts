@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_transaction',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Transaction',
       description:
         'Get details of a specific Orderful transaction by ID. Returns sender, receiver, type, stream, validation/delivery/acknowledgment statuses, and timestamps.',

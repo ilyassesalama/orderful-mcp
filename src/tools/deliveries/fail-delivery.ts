@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_fail_delivery',
     {
+      annotations: { readOnlyHint: false, destructiveHint: true },
       title: 'Fail Delivery',
       description:
         'Mark a delivery as failed. If this is the most recent delivery for a transaction, the transaction delivery status updates to FAILED.',

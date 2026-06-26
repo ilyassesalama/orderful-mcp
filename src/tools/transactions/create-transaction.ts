@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_create_transaction',
     {
+      annotations: { readOnlyHint: false },
       title: 'Create Transaction',
       description:
         'Create a new EDI transaction in Orderful. Only one transaction can be posted at a time. The message field must conform to the JSON structure defined by the specified transaction type.',

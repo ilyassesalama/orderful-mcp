@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_transaction_message',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Transaction Message',
       description:
         'Get the full EDI message content of an Orderful transaction. Returns the complete transaction sets with all EDI segments.',

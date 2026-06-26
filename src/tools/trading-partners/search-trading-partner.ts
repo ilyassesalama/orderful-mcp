@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_search_trading_partner',
     {
+      annotations: { readOnlyHint: true },
       title: 'Search Trading Partner',
       description:
         'Search for Orderful trading partners by name or ISA ID. Returns matching EDI accounts with id, name, isaId, and isaIdQualifier.',

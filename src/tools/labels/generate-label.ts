@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_generate_label',
     {
+      annotations: { readOnlyHint: false },
       title: 'Generate Label',
       description:
         'Generate shipping labels from transaction data. Provide the retailer/distributor type and label details. Returns label in ZPL or PDF format.',

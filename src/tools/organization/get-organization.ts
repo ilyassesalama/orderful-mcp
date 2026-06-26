@@ -5,6 +5,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_organization',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Organization',
       description:
         "Get the current Orderful organization's profile info including ID and name.",

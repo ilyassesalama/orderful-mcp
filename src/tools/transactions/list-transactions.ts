@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_list_transactions',
     {
+      annotations: { readOnlyHint: true },
       title: 'List Transactions',
       description:
         'List Orderful transactions with optional filters. Returns paginated results (max 100 per request, newest first). Use nextCursor/prevCursor for pagination.',

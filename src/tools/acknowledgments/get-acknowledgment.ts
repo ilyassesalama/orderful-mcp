@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_acknowledgment',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Acknowledgment',
       description:
         'Get acknowledgment details for a transaction. Returns status, creation timestamp, associated transaction reference, and any errors.',

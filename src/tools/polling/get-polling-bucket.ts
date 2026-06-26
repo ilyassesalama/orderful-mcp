@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_polling_bucket',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Polling Bucket',
       description:
         'Retrieve transactions from an Orderful polling bucket for processing. Returns an array of delivery objects. Response size is limited to 200MB.',

@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_approve_delivery',
     {
+      annotations: { readOnlyHint: false },
       title: 'Approve Delivery',
       description:
         'Approve a transaction delivery. Updates the transaction delivery status to DELIVERED if this is the most recent delivery. Also removes associated transactions from poller buckets.',

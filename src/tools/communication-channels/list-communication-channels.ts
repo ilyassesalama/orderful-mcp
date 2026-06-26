@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_list_communication_channels',
     {
+      annotations: { readOnlyHint: true },
       title: 'List Communication Channels',
       description:
         "List all communication channels (AS2, SFTP, POLLER, HTTP) configured for an organization. Returns each channel's id, name, type, direction (IN/OUT), and config. Critical for VAN partner migration: Orderful does not have a dedicated VAN channel type — VAN partners route through the organization's existing POLLER channels via document relationships. Use this tool to find the relevant POLLER channel id, then pass it into orderful_update_document_relationship when wiring up VAN partners.",

@@ -6,6 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_get_document_relationship',
     {
+      annotations: { readOnlyHint: true },
       title: 'Get Document Relationship',
       description:
         'Fetch a single document-relationship by id (per partner × transaction-type × direction) and return its full configuration: bound test/prod communication channels, autoSend, sendAcks, ackTimeout, partner guideline set, status (TEST/PROD), data format, and any additional workflow config. Useful before issuing a PATCH via orderful_update_document_relationship, when troubleshooting a specific partner flow, or when inspecting an id taken from the Orderful UI URL.',
