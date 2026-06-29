@@ -1,24 +1,6 @@
-/**
- * OAuth 2.1 authorization-server provider for hosted (remote) mode.
- *
- * Orderful itself has no OAuth IdP — it authenticates with a static API key.
- * So this server *is* the authorization server, and the "login" step is where
- * each team member pastes their own Orderful key. That key is bound to the
- * tokens we issue, so the org owner adds a single keyless connector URL and
- * every member supplies their own credential privately during Connect.
- *
- * Flow:
- *   1. Claude hits GET /authorize  -> provider.authorize() renders a page
- *      asking for the member's Orderful API key (all OAuth params carried as
- *      hidden fields).
- *   2. The page POSTs to /oauth/orderful/submit (orderfulLoginSubmitHandler):
- *      we validate the key against Orderful, mint a single-use auth code bound
- *      to it, and redirect back to Claude with ?code=…&state=….
- *   3. Claude exchanges the code at POST /token (exchangeAuthorizationCode),
- *      PKCE is verified by the SDK via challengeForAuthorizationCode().
- *   4. Each MCP request carries the access token; verifyAccessToken() resolves
- *      it back to the member's Orderful key (surfaced via AuthInfo.extra).
- */
+// OAuth 2.1 provider. Orderful has no OAuth IdP, so this server is the
+// authorization server and the "login" step is each member pasting their own
+// Orderful key — which is then bound to the tokens we issue.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Request, Response, RequestHandler } from 'express';
@@ -43,7 +25,6 @@ import {
   revokeToken as storeRevokeToken,
 } from './oauth-store.js';
 
-/** Path the key-capture form POSTs to. Mounted in index.ts. */
 export const ORDERFUL_LOGIN_SUBMIT_PATH = '/oauth/orderful/submit';
 
 function escapeAttr(value: string): string {
@@ -54,8 +35,6 @@ function escapeAttr(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
-// The HTML lives in a sibling oauth-login.html (copied to dist/ by the build).
-// Read once and cache; render() fills the {{…}} placeholders per request.
 const TEMPLATE_PATH = fileURLToPath(new URL('./oauth-login.html', import.meta.url));
 let loginTemplate: string | undefined;
 
@@ -94,7 +73,6 @@ const clientsStore: OAuthRegisteredClientsStore = {
     return getClient(clientId);
   },
   registerClient(client) {
-    // The SDK has already generated client_id / client_secret.
     return saveClient(client as OAuthClientInformationFull);
   },
 };
@@ -105,8 +83,6 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
   },
 
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
-    // Render the key-capture page. All parameters needed to resume the OAuth
-    // flow are carried as hidden form fields and re-validated on submit.
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(
@@ -194,7 +170,6 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
       scopes: rec.scopes,
       expiresAt: rec.expiresAtSec,
       resource: rec.resource ? new URL(rec.resource) : undefined,
-      // Surfaced to the MCP request handler as req.auth.extra.orderfulKey
       extra: { orderfulKey: rec.orderfulKey },
     };
   },
@@ -204,10 +179,6 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
   },
 };
 
-/**
- * Handles the POST from the key-capture page. Validates the Orderful key,
- * then issues a single-use authorization code and redirects back to the client.
- */
 export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const orderfulKey = typeof body.orderful_key === 'string' ? body.orderful_key.trim() : '';

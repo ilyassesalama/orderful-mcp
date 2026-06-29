@@ -1,16 +1,5 @@
-/**
- * OAuth state store for hosted (remote) mode.
- *
- * Holds the durable OAuth state that outlives a single request: registered
- * clients, authorization codes (single-use), and access/refresh tokens. Each
- * member's Orderful API key is encrypted at rest (AES-256-GCM) and mapped to
- * the tokens we issue.
- *
- * Backend is chosen at startup: if REDIS_URL is set the state lives in Redis
- * (survives restarts, shared across instances — the production setup, e.g.
- * Railway's Redis add-on); otherwise it falls back to an in-memory map (fine
- * for local dev and single-instance deploys, but cleared on restart).
- */
+// OAuth state store: Redis when REDIS_URL is set (shared, survives restarts),
+// otherwise an in-memory map. Member API keys are encrypted at rest.
 import { randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import { Redis } from 'ioredis';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
@@ -20,9 +9,7 @@ export const ACCESS_TOKEN_TTL_MS = 60 * 60_000; // 1 hour
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
 const CLIENT_TTL_MS = 365 * 24 * 60 * 60_000; // clients effectively persist
 
-// Uses OAUTH_ENCRYPTION_KEY if set, otherwise a random per-process key. A random
-// key means tokens can't be decrypted after a restart — set OAUTH_ENCRYPTION_KEY
-// (stable, secret) so tokens stored in Redis stay valid across deploys.
+// Set a stable OAUTH_ENCRYPTION_KEY in production, or tokens won't survive a restart.
 const ENC_KEY = createHash('sha256')
   .update(process.env.OAUTH_ENCRYPTION_KEY || randomBytes(32).toString('hex'))
   .digest();
@@ -45,14 +32,10 @@ function decrypt(blob: string): string {
   ]).toString('utf8');
 }
 
-/**
- * Minimal key/value contract the store needs. `take` is an atomic get-and-delete
- * (used to enforce single-use auth codes and refresh-token rotation).
- */
 interface Kv {
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string, ttlMs: number): Promise<void>;
-  take(key: string): Promise<string | undefined>;
+  take(key: string): Promise<string | undefined>; // atomic get-and-delete
   del(key: string): Promise<void>;
 }
 
@@ -102,7 +85,6 @@ class RedisKv implements Kv {
     await this.redis.set(key, value, 'PX', ttlMs);
   }
   async take(key: string) {
-    // GETDEL is atomic — prevents an auth code / refresh token being used twice.
     return (await this.redis.getdel(key)) ?? undefined;
   }
   async del(key: string) {
@@ -175,7 +157,6 @@ export async function peekAuthCodeChallenge(code: string): Promise<string | unde
   return raw ? (JSON.parse(raw) as AuthCodeRecord).codeChallenge : undefined;
 }
 
-/** Consume an auth code (single-use). Returns the record + decrypted key, or undefined. */
 export async function consumeAuthCode(code: string): Promise<
   | { clientId: string; redirectUri: string; resource?: string; scopes: string[]; orderfulKey: string }
   | undefined
@@ -249,7 +230,6 @@ export async function verifyAccessToken(token: string): Promise<VerifiedToken | 
   };
 }
 
-/** Rotate a refresh token into a fresh access/refresh pair. */
 export async function consumeRefreshToken(token: string): Promise<
   { clientId: string; scopes: string[]; resource?: string; orderfulKey: string } | undefined
 > {

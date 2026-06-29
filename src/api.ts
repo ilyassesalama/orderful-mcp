@@ -8,11 +8,7 @@ export function setApiKey(key: string): void {
   cliApiKey = key;
 }
 
-/**
- * Validate an Orderful API key by making one cheap authenticated call.
- * Used during the OAuth login step to reject bad keys before issuing tokens.
- * Returns true if the key is accepted by Orderful, false otherwise.
- */
+// Cheap check used at OAuth login to reject bad keys before issuing tokens.
 export async function validateOrderfulKey(key: string): Promise<boolean> {
   try {
     const response = await fetch(`${BASE_URL}/v3/organizations/me`, {
