@@ -19,9 +19,8 @@
       --badge-bg: #ffffff;
       --clay: #d97757;
       --clay-press: #c5664a;
-      --err-bg: #fdeceb;
-      --err-fg: #a8362f;
-      --err-border: rgba(168, 54, 47, 0.25);
+      --danger: #d92d20;
+      --danger-glow: rgba(217, 45, 32, 0.18);
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -33,9 +32,8 @@
         --field-bg: #17151300;
         --field-border: rgba(255, 255, 255, 0.16);
         --badge-bg: #1a1714;
-        --err-bg: #2e1714;
-        --err-fg: #f4a79c;
-        --err-border: rgba(244, 167, 156, 0.28);
+        --danger: #f97066;
+        --danger-glow: rgba(249, 112, 102, 0.22);
       }
     }
 
@@ -147,16 +145,6 @@
       opacity: 0;
       animation: fadeUp 0.6s cubic-bezier(0.2, 0, 0, 1) 0.24s forwards;
     }
-    .error {
-      margin: 0 0 16px;
-      padding: 10px 13px;
-      border-radius: 11px;
-      background: var(--err-bg);
-      color: var(--err-fg);
-      border: 1px solid var(--err-border);
-      font-size: 13.5px;
-      text-align: left;
-    }
     label {
       display: block;
       text-align: left;
@@ -184,6 +172,13 @@
       border-color: var(--clay);
       box-shadow: 0 0 0 3px var(--bg-glow);
     }
+    form.invalid label { color: var(--danger); }
+    form.invalid input[type="password"] { border-color: var(--danger); }
+    form.invalid input[type="password"]:focus {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 3px var(--danger-glow);
+    }
+    input.shake { animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
     button {
       width: 100%;
       margin-top: 18px;
@@ -200,11 +195,23 @@
       transition-duration: 0.15s;
       transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
     }
-    button:hover { background: var(--clay-press); }
-    button:active { scale: 0.96; }
+    button:hover:not(:disabled) { background: var(--clay-press); }
+    button:active:not(:disabled) { scale: 0.96; }
     button:focus-visible {
       outline: none;
       box-shadow: 0 0 0 3px var(--bg-glow);
+    }
+    button:disabled { opacity: 0.75; cursor: default; }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 8px;
+      vertical-align: -2px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
     }
     .hint {
       margin: 18px auto 0;
@@ -227,8 +234,17 @@
       from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes shake {
+      10%, 90% { transform: translateX(-1px); }
+      20%, 80% { transform: translateX(2px); }
+      30%, 50%, 70% { transform: translateX(-5px); }
+      40%, 60% { transform: translateX(5px); }
+    }
     @media (prefers-reduced-motion: reduce) {
       .logos, h1, p.sub, form { animation: none; opacity: 1; }
+      .spinner { animation-duration: 1.5s; }
+      input.shake { animation: none; }
     }
   </style>
 </head>
@@ -262,15 +278,58 @@
     <h1>Connect Orderful to Claude</h1>
     <p class="sub">{{CLIENT_NAME}} wants to access Orderful on your behalf. Enter your own Orderful API key to connect — it authorizes only your requests and is never shown to other members.</p>
 
-    <form method="POST" action="{{ACTION}}" autocomplete="off">
-      {{ERROR}}
+    <form id="connect-form" class="{{FORM_CLASS}}" method="POST" action="{{ACTION}}" autocomplete="off">
       <label for="orderful_key">Orderful API key</label>
       <input id="orderful_key" name="orderful_key" type="password" required autofocus
         placeholder="paste your key" spellcheck="false" autocapitalize="off" autocorrect="off">
       {{HIDDEN_FIELDS}}
-      <button type="submit">Connect</button>
+      <button id="connect-btn" type="submit">Connect</button>
       <p class="hint">Don't have a key? <a href="https://ui.orderful.com/settings/api-credentials" target="_blank" rel="noopener noreferrer">Get your Orderful API key →</a></p>
     </form>
   </main>
+
+  <script>
+    (function () {
+      var form = document.getElementById('connect-form');
+      var btn = document.getElementById('connect-btn');
+      var input = document.getElementById('orderful_key');
+
+      function setLoading(on) {
+        btn.disabled = on;
+        btn.innerHTML = on ? '<span class="spinner"></span>Connecting…' : 'Connect';
+      }
+      function markInvalid() {
+        form.classList.add('invalid');
+        input.classList.remove('shake');
+        void input.offsetWidth; // restart the shake animation
+        input.classList.add('shake');
+        input.focus();
+        input.select();
+      }
+
+      input.addEventListener('input', function () { form.classList.remove('invalid'); });
+      input.addEventListener('animationend', function () { input.classList.remove('shake'); });
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        form.classList.remove('invalid');
+        setLoading(true);
+        try {
+          var res = await fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new URLSearchParams(new FormData(form)),
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (res.ok && data.redirect) {
+            window.location.href = data.redirect;
+            return;
+          }
+        } catch (err) { /* fall through to invalid state */ }
+        setLoading(false);
+        markInvalid();
+      });
+    })();
+  </script>
 </body>
 </html>

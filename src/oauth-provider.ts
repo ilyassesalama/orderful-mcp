@@ -41,7 +41,7 @@ let loginTemplate: string | undefined;
 function loginPage(opts: {
   hidden: Record<string, string | undefined>;
   clientName?: string;
-  error?: string;
+  invalid?: boolean;
 }): string {
   if (loginTemplate === undefined) {
     loginTemplate = readFileSync(TEMPLATE_PATH, 'utf8');
@@ -53,13 +53,12 @@ function loginPage(opts: {
     .join('\n      ');
 
   const who = opts.clientName ? escapeAttr(opts.clientName) : 'An application';
-  const errorBlock = opts.error ? `<p class="error">${escapeAttr(opts.error)}</p>` : '';
 
   const replacements: Record<string, string> = {
     '{{CLIENT_NAME}}': who,
     '{{ACTION}}': escapeAttr(ORDERFUL_LOGIN_SUBMIT_PATH),
     '{{HIDDEN_FIELDS}}': hiddenFields,
-    '{{ERROR}}': errorBlock,
+    '{{FORM_CLASS}}': opts.invalid ? 'invalid' : '',
   };
 
   return Object.entries(replacements).reduce(
@@ -190,37 +189,45 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
   const scope = typeof body.scope === 'string' ? body.scope : '';
   const scopes = scope.split(' ').filter(Boolean);
 
+  // The page submits via fetch with this header; reply with JSON instead of a
+  // redirect/HTML re-render so it can show a loading state and inline errors.
+  const wantsJson = (req.get('x-requested-with') || '').toLowerCase() === 'xmlhttprequest';
+
   // Re-validate the client and redirect_uri server-side — never trust the
   // hidden fields for the redirect target (open-redirect / code-injection).
   const client = await getClient(clientId);
   if (!client || !codeChallenge) {
-    res.status(400).json({ error: 'invalid_request', error_description: 'Unknown client or missing PKCE challenge' });
+    res.status(400).json({ error: 'Unknown client or missing PKCE challenge' });
     return;
   }
   if (!client.redirect_uris.includes(redirectUri)) {
-    res.status(400).json({ error: 'invalid_request', error_description: 'Unregistered redirect_uri' });
+    res.status(400).json({ error: 'Unregistered redirect_uri' });
     return;
   }
 
-  const renderError = (message: string) => {
+  const fail = (message: string) => {
+    if (wantsJson) {
+      res.status(400).json({ error: message });
+      return;
+    }
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(
       loginPage({
         clientName: client.client_name,
-        error: message,
+        invalid: true,
         hidden: { client_id: clientId, redirect_uri: redirectUri, code_challenge: codeChallenge, state, resource, scope },
       }),
     );
   };
 
   if (!orderfulKey) {
-    renderError('Please enter your Orderful API key.');
+    fail('Please enter your Orderful API key.');
     return;
   }
 
   const valid = await validateOrderfulKey(orderfulKey);
   if (!valid) {
-    renderError('That Orderful API key was rejected. Check it and try again.');
+    fail('That Orderful API key was rejected. Check it and try again.');
     return;
   }
 
@@ -236,5 +243,10 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
   const url = new URL(redirectUri);
   url.searchParams.set('code', code);
   if (state !== undefined) url.searchParams.set('state', state);
+
+  if (wantsJson) {
+    res.json({ redirect: url.href });
+    return;
+  }
   res.redirect(302, url.href);
 };
