@@ -61,42 +61,62 @@ orderful your-orderful-api-key
 
 ## Self-hosting (HTTP mode)
 
-Instead of each user running the server locally over stdio, you can host one instance and have clients connect over HTTP. Start it in HTTP mode:
+Instead of each user running the server locally over stdio, you can host one instance and have clients connect over HTTP. Authentication uses **OAuth 2.1** — each user authenticates with **their own** Orderful API key during the Connect flow, so a single hosted instance safely serves a whole team and no key is ever shared or embedded in a URL.
+
+Start it in HTTP mode:
 
 ```bash
-MCP_TRANSPORT=http PORT=3000 node dist/index.js
+MCP_TRANSPORT=http PORT=3000 OAUTH_ISSUER_URL=https://your-host.example.com node dist/index.js
 ```
 
 This exposes:
 
-- `POST /mcp` — the MCP endpoint (Streamable HTTP)
+- `POST /mcp` — the MCP endpoint (Streamable HTTP), protected by a Bearer access token
+- `GET /authorize`, `POST /token`, `POST /register`, `POST /revoke` — OAuth 2.1 endpoints
+- `GET /.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp` — discovery metadata
 - `GET /health` — health check
 
-Each user passes **their own** Orderful API key as a `?key=` query parameter on the URL. The server isolates credentials per request, so a single instance can safely serve many users:
+### Environment variables
 
-```
-https://your-host.example.com/mcp?key=your-orderful-api-key
-```
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `MCP_TRANSPORT=http` | yes | Enables HTTP mode (default is stdio). |
+| `OAUTH_ISSUER_URL` | yes (prod) | The externally reachable HTTPS base URL of this server. Used as the OAuth issuer and to build discovery metadata. Defaults to `http://localhost:<PORT>` for local dev. |
+| `PORT` | no | Listen port (default `3000`). |
+| `MCP_PATH` | no | Path the MCP endpoint is mounted at (default `/mcp`). |
+| `OAUTH_ENCRYPTION_KEY` | recommended | Secret used to encrypt stored Orderful keys at rest (AES-256-GCM). If unset, a random per-process key is used and issued tokens won't survive a restart. |
 
-Connecting clients to the hosted server:
+### How a team connects
+
+1. **The org owner adds the connector once**, with **no key in the URL**:
+
+   ```
+   https://your-host.example.com/mcp
+   ```
+
+   In **Organization settings → Connectors → Add → Custom → Web**, paste that URL. (On Teams plans, only Owners can add custom connectors.)
+
+2. **Each member connects individually.** Under **Customize → Connectors → Connect**, Claude discovers the OAuth metadata, registers itself, and opens a page asking for **that member's own Orderful API key**. The key is validated against Orderful, bound to tokens issued just for that member, and never appears in shared connector settings.
 
 - **Claude Code (terminal):**
 
   ```bash
-  claude mcp add --transport http orderful "https://your-host.example.com/mcp?key=your-orderful-api-key"
+  claude mcp add --transport http orderful "https://your-host.example.com/mcp"
   ```
 
-  (Add `--scope user` to make it available across all your projects.)
+  (Add `--scope user` to make it available across all your projects.) Claude Code runs the OAuth flow on first use.
 
-- **Claude Desktop / web — Add custom connector dialog:** paste that full URL (with your key) into the **Remote MCP server URL** field.
+The MCP endpoint also applies per-IP rate limiting and a 1 MB request size limit. **Always run it behind HTTPS** (a reverse proxy or your platform's TLS) — `OAUTH_ISSUER_URL` must be the public `https://` URL.
 
-Requests without a `?key=` parameter are rejected. The endpoint also applies per-IP rate limiting and a 1 MB request size limit. Always run it behind HTTPS (a reverse proxy or your platform's TLS).
+> **Per-user identity, no shared secret.** Because each member authenticates with their own key via OAuth, there's no `?key=` in the URL to leak across the team, and a member's key is never visible to anyone else. Rotate a key in Orderful at any time; that member just re-connects.
 
-> **Note:** Because this URL contains your API key, treat it like a password — don't share it, and rotate the key in Orderful if a URL leaks. (The key is in the URL because connector UIs only accept a URL, not custom headers.)
+### Scaling beyond one instance
+
+OAuth state (clients, codes, tokens) is held **in-memory** in a single process — fine for one instance. To run multiple instances behind a load balancer, replace the `Map`s in `src/oauth-store.ts` with a shared backend (Redis, Postgres, …); the surface is intentionally small so the swap is mechanical. Set a stable `OAUTH_ENCRYPTION_KEY` so stored keys decrypt across instances.
 
 ## Getting an API key
 
-Generate an API key from your Orderful dashboard under **Settings → API Keys**. Pass it as the first argument to the `orderful` command (stdio) or as a `?key=` URL parameter (HTTP). Your key is sent directly to Orderful's API and is never stored or transmitted anywhere else.
+Generate an API key from your Orderful dashboard under **Settings → API Keys**. Pass it as the first argument to the `orderful` command (stdio), or enter it on the Connect page when authenticating to a hosted instance (HTTP/OAuth). Your key is sent directly to Orderful's API to authorize your requests.
 
 ## Tools
 

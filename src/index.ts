@@ -27,49 +27,93 @@ async function startHttp() {
   const { StreamableHTTPServerTransport } = await import(
     '@modelcontextprotocol/sdk/server/streamableHttp.js'
   );
+  const { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } = await import(
+    '@modelcontextprotocol/sdk/server/auth/router.js'
+  );
+  const { requireBearerAuth } = await import(
+    '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
+  );
+  const { securityHeaders, rateLimitMiddleware, JSON_LIMIT } = await import('./http-security.js');
   const {
-    securityHeaders,
-    authMiddleware,
-    getApiKeyFromRequest,
-    JSON_LIMIT,
-  } = await import('./http-security.js');
+    orderfulOAuthProvider,
+    orderfulLoginSubmitHandler,
+    ORDERFUL_LOGIN_SUBMIT_PATH,
+  } = await import('./oauth-provider.js');
 
-  const app = express();
-  app.use(express.json({ limit: JSON_LIMIT }));
-  app.use(securityHeaders);
+  const port = process.env.PORT || 3000;
+
+  // Public base URL of this server, used as the OAuth issuer and to build the
+  // protected-resource metadata. MUST be the externally reachable HTTPS URL in
+  // production (set OAUTH_ISSUER_URL / PUBLIC_URL behind your reverse proxy).
+  const baseUrl = new URL(
+    process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || `http://localhost:${port}`,
+  );
 
   // Path the MCP endpoint is mounted at. Defaults to /mcp; override with
   // MCP_PATH when serving behind a multi-server gateway (e.g. /mcp/orderful).
   const mcpPath = process.env.MCP_PATH || '/mcp';
+  const resourceServerUrl = new URL(mcpPath, baseUrl);
+  const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(resourceServerUrl);
 
-  // Authenticated MCP endpoint — fresh server per request (MCP servers are single-connect)
-  app.all(mcpPath, authMiddleware, async (req, res) => {
-    try {
-      // authMiddleware guarantees a key is present
-      const apiKey = getApiKeyFromRequest(req)!;
+  const app = express();
+  app.use(securityHeaders);
 
-      // Run in async context so getApiKey() picks up this request's key
-      await credentialStore.run({ ORDERFUL_API_KEY: apiKey }, async () => {
-        const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
-        registerAllTools(server);
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        await server.connect(transport);
-        await transport.handleRequest(req, res, req.body);
-      });
-    } catch (err) {
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal server error' });
+  // OAuth 2.1 authorization-server endpoints: /authorize, /token, /register,
+  // and the discovery metadata. Each member authenticates here with their own
+  // Orderful API key. (These handlers mount their own body parsers internally.)
+  app.use(
+    mcpAuthRouter({
+      provider: orderfulOAuthProvider,
+      issuerUrl: baseUrl,
+      baseUrl,
+      resourceServerUrl,
+      resourceName: 'Orderful EDI MCP',
+    }),
+  );
+
+  // Key-capture form submit (application/x-www-form-urlencoded).
+  app.post(ORDERFUL_LOGIN_SUBMIT_PATH, express.urlencoded({ extended: false }), orderfulLoginSubmitHandler);
+
+  // Authenticated MCP endpoint — fresh server per request (MCP servers are
+  // single-connect). requireBearerAuth validates the access token and attaches
+  // req.auth; the member's Orderful key rides in req.auth.extra.orderfulKey.
+  app.all(
+    mcpPath,
+    rateLimitMiddleware,
+    requireBearerAuth({ verifier: orderfulOAuthProvider, resourceMetadataUrl }),
+    express.json({ limit: JSON_LIMIT }),
+    async (req, res) => {
+      try {
+        const apiKey = (req.auth?.extra as { orderfulKey?: string } | undefined)?.orderfulKey;
+        if (!apiKey) {
+          res.status(401).json({ error: 'invalid_token' });
+          return;
+        }
+
+        // Run in async context so getApiKey() picks up this request's key
+        await credentialStore.run({ ORDERFUL_API_KEY: apiKey }, async () => {
+          const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
+          registerAllTools(server);
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+          await server.connect(transport);
+          await transport.handleRequest(req, res, req.body);
+        });
+      } catch (err) {
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
       }
-    }
-  });
+    },
+  );
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
 
-  const port = process.env.PORT || 3000;
   app.listen(port, () => {
-    console.log(`Orderful EDI MCP server listening on port ${port} (HTTP mode), MCP endpoint at ${mcpPath}`);
+    console.log(
+      `Orderful EDI MCP server listening on port ${port} (HTTP mode), MCP endpoint at ${mcpPath}, OAuth issuer ${baseUrl.href}`,
+    );
   });
 }
 

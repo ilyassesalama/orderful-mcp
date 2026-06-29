@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect Orderful to Claude</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #faf9f7;
+      --bg-glow: rgba(217, 119, 87, 0.10);
+      --fg: #1a1815;
+      --muted: #78716c;
+      --line: rgba(0, 0, 0, 0.09);
+      --field-bg: #ffffff;
+      --field-border: rgba(0, 0, 0, 0.13);
+      --badge-bg: #ffffff;
+      --clay: #d97757;
+      --clay-press: #c5664a;
+      --err-bg: #fdeceb;
+      --err-fg: #a8362f;
+      --err-border: rgba(168, 54, 47, 0.25);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e0d0c;
+        --bg-glow: rgba(217, 119, 87, 0.14);
+        --fg: #f2efe9;
+        --muted: #9c948b;
+        --line: rgba(255, 255, 255, 0.12);
+        --field-bg: #17151300;
+        --field-border: rgba(255, 255, 255, 0.16);
+        --badge-bg: #1a1714;
+        --err-bg: #2e1714;
+        --err-fg: #f4a79c;
+        --err-border: rgba(244, 167, 156, 0.28);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 32px 24px;
+      background:
+        radial-gradient(120% 80% at 50% -10%, var(--bg-glow) 0%, transparent 60%),
+        var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    main {
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+    }
+
+    /* ── Connected logos ─────────────────────────── */
+    .logos {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 28px;
+      opacity: 0;
+      animation: fadeUp 0.6s cubic-bezier(0.2, 0, 0, 1) forwards;
+    }
+    .badge {
+      width: 60px;
+      height: 60px;
+      border-radius: 18px;
+      background: var(--badge-bg);
+      display: grid;
+      place-items: center;
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.06),
+        0 6px 16px rgba(0, 0, 0, 0.08),
+        inset 0 0 0 1px var(--line);
+    }
+    .badge svg { display: block; }
+    .connector {
+      position: relative;
+      width: 64px;
+      height: 60px;
+      display: grid;
+      place-items: center;
+    }
+    .connector::before {
+      content: "";
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      top: 50%;
+      height: 0;
+      border-top: 1.5px dashed var(--line);
+      transform: translateY(-50%);
+    }
+    .node {
+      position: relative;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: var(--badge-bg);
+      display: grid;
+      place-items: center;
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.10),
+        inset 0 0 0 1px var(--line);
+      color: var(--clay);
+    }
+
+    /* ── Text ────────────────────────────────────── */
+    h1 {
+      margin: 0 0 10px;
+      font-size: 26px;
+      line-height: 1.2;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
+      opacity: 0;
+      animation: fadeUp 0.6s cubic-bezier(0.2, 0, 0, 1) 0.08s forwards;
+    }
+    p.sub {
+      margin: 0 auto 28px;
+      max-width: 340px;
+      color: var(--muted);
+      font-size: 14.5px;
+      text-wrap: pretty;
+      opacity: 0;
+      animation: fadeUp 0.6s cubic-bezier(0.2, 0, 0, 1) 0.16s forwards;
+    }
+
+    /* ── Form ────────────────────────────────────── */
+    form {
+      opacity: 0;
+      animation: fadeUp 0.6s cubic-bezier(0.2, 0, 0, 1) 0.24s forwards;
+    }
+    .error {
+      margin: 0 0 16px;
+      padding: 10px 13px;
+      border-radius: 11px;
+      background: var(--err-bg);
+      color: var(--err-fg);
+      border: 1px solid var(--err-border);
+      font-size: 13.5px;
+      text-align: left;
+    }
+    label {
+      display: block;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      margin: 0 0 7px;
+      color: var(--fg);
+    }
+    input[type="password"] {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      color: var(--fg);
+      background: var(--field-bg);
+      border: 1px solid var(--field-border);
+      border-radius: 12px;
+      transition-property: border-color, box-shadow;
+      transition-duration: 0.15s;
+      transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    }
+    input[type="password"]::placeholder { color: var(--muted); opacity: 0.7; }
+    input[type="password"]:focus {
+      outline: none;
+      border-color: var(--clay);
+      box-shadow: 0 0 0 3px var(--bg-glow);
+    }
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 12px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: var(--clay);
+      border: 0;
+      border-radius: 12px;
+      cursor: pointer;
+      transition-property: background-color, scale;
+      transition-duration: 0.15s;
+      transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    }
+    button:hover { background: var(--clay-press); }
+    button:active { scale: 0.96; }
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--bg-glow);
+    }
+    .hint {
+      margin: 18px auto 0;
+      max-width: 320px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+    .hint a {
+      color: var(--clay);
+      font-weight: 600;
+      text-decoration: none;
+      transition-property: color;
+      transition-duration: 0.15s;
+      transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    }
+    .hint a:hover { color: var(--clay-press); text-decoration: underline; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .logos, h1, p.sub, form { animation: none; opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="logos" aria-hidden="true">
+      <!-- Orderful mark -->
+      <div class="badge">
+        <svg width="28" height="28" viewBox="114.617 -0.449 21.385 21.385" xmlns="http://www.w3.org/2000/svg" fill="none">
+          <path d="M136 8.73855L128.709 8.18818L131.819 1.49387L129.264 0L125.308 6.02039L121.357 0L118.796 1.49387L121.906 8.18818L114.615 8.73855V11.7488L121.802 12.2935L118.687 18.9934L121.242 20.4817L125.308 14.2928L129.374 20.4817L131.934 18.9934L128.813 12.2935L136 11.7488V8.73855Z" fill="#f32b09"/>
+        </svg>
+      </div>
+
+      <!-- Connector -->
+      <div class="connector">
+        <div class="node">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Claude logo -->
+      <div class="badge">
+        <svg width="27" height="27" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#d97757" aria-label="Claude">
+          <path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/>
+        </svg>
+      </div>
+    </div>
+
+    <h1>Connect Orderful to Claude</h1>
+    <p class="sub">{{CLIENT_NAME}} wants to access Orderful on your behalf. Enter your own Orderful API key to connect — it authorizes only your requests and is never shown to other members.</p>
+
+    <form method="POST" action="{{ACTION}}" autocomplete="off">
+      {{ERROR}}
+      <label for="orderful_key">Orderful API key</label>
+      <input id="orderful_key" name="orderful_key" type="password" required autofocus
+        placeholder="paste your key" spellcheck="false" autocapitalize="off" autocorrect="off">
+      {{HIDDEN_FIELDS}}
+      <button type="submit">Connect</button>
+      <p class="hint">Don't have a key? <a href="https://ui.orderful.com/settings/api-credentials" target="_blank" rel="noopener noreferrer">Get your Orderful API key →</a></p>
+    </form>
+  </main>
+</body>
+</html>
