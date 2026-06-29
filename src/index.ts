@@ -1,9 +1,26 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerAllTools } from './tools/index.js';
 import { credentialStore } from './credential-store.js';
 import { setApiKey } from './api.js';
+
+const faviconSvg = readFileSync(fileURLToPath(new URL('./favicon.svg', import.meta.url)));
+
+const serverInfo = {
+  name: 'orderful-edi',
+  title: 'Orderful EDI',
+  version: '1.0.0',
+  icons: [
+    {
+      src: `data:image/svg+xml;base64,${faviconSvg.toString('base64')}`,
+      mimeType: 'image/svg+xml',
+      sizes: ['any'],
+    },
+  ],
+};
 
 async function startStdio() {
   const apiKey = process.argv[2];
@@ -14,7 +31,7 @@ async function startStdio() {
   }
   setApiKey(apiKey);
 
-  const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
+  const server = new McpServer(serverInfo);
   registerAllTools(server);
 
   const transport = new StdioServerTransport();
@@ -42,15 +59,11 @@ async function startHttp() {
 
   const port = process.env.PORT || 3000;
 
-  // Public base URL of this server, used as the OAuth issuer and to build the
-  // protected-resource metadata. MUST be the externally reachable HTTPS URL in
-  // production (set OAUTH_ISSUER_URL / PUBLIC_URL behind your reverse proxy).
+  // OAuth issuer — must be the public HTTPS URL in production.
   const baseUrl = new URL(
     process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || `http://localhost:${port}`,
   );
 
-  // Path the MCP endpoint is mounted at. Defaults to /mcp; override with
-  // MCP_PATH when serving behind a multi-server gateway (e.g. /mcp/orderful).
   const mcpPath = process.env.MCP_PATH || '/mcp';
   const resourceServerUrl = new URL(mcpPath, baseUrl);
   const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(resourceServerUrl);
@@ -58,9 +71,14 @@ async function startHttp() {
   const app = express();
   app.use(securityHeaders);
 
-  // OAuth 2.1 authorization-server endpoints: /authorize, /token, /register,
-  // and the discovery metadata. Each member authenticates here with their own
-  // Orderful API key. (These handlers mount their own body parsers internally.)
+  const sendFavicon = (_req: import('express').Request, res: import('express').Response) => {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(faviconSvg);
+  };
+  app.get('/favicon.svg', sendFavicon);
+  app.get('/favicon.ico', sendFavicon);
+
   app.use(
     mcpAuthRouter({
       provider: orderfulOAuthProvider,
@@ -71,12 +89,9 @@ async function startHttp() {
     }),
   );
 
-  // Key-capture form submit (application/x-www-form-urlencoded).
   app.post(ORDERFUL_LOGIN_SUBMIT_PATH, express.urlencoded({ extended: false }), orderfulLoginSubmitHandler);
 
-  // Authenticated MCP endpoint — fresh server per request (MCP servers are
-  // single-connect). requireBearerAuth validates the access token and attaches
-  // req.auth; the member's Orderful key rides in req.auth.extra.orderfulKey.
+  // Fresh server per request; the member's key arrives in req.auth.extra.
   app.all(
     mcpPath,
     rateLimitMiddleware,
@@ -90,9 +105,8 @@ async function startHttp() {
           return;
         }
 
-        // Run in async context so getApiKey() picks up this request's key
         await credentialStore.run({ ORDERFUL_API_KEY: apiKey }, async () => {
-          const server = new McpServer({ name: 'orderful-edi', version: '1.0.0' });
+          const server = new McpServer(serverInfo);
           registerAllTools(server);
           const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
           await server.connect(transport);

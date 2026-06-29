@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && cp src/oauth-login.html dist/oauth-login.html",
+    "build": "tsc && cp src/oauth-login.html src/favicon.svg dist/",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "prepublishOnly": "npm run build"
