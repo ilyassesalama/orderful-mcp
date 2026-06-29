@@ -12,7 +12,7 @@ import type {
   OAuthTokenRevocationRequest,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { validateOrderfulKey } from './api.js';
+import { getOrganizationInfo } from './api.js';
 import {
   saveClient,
   getClient,
@@ -23,9 +23,20 @@ import {
   verifyAccessToken as storeVerifyAccessToken,
   consumeRefreshToken,
   revokeToken as storeRevokeToken,
+  createProfile,
+  addOrgToProfile,
+  createConnectToken,
+  peekConnectToken,
+  consumeConnectToken,
 } from './oauth-store.js';
 
 export const ORDERFUL_LOGIN_SUBMIT_PATH = '/oauth/orderful/submit';
+export const ORDERFUL_CONNECT_PATH = '/oauth/orderful/connect';
+export const ORDERFUL_CONNECT_SUBMIT_PATH = '/oauth/orderful/connect/submit';
+export const ORDERFUL_CONNECT_DONE_PATH = '/oauth/orderful/connect/done';
+
+const ADD_ORG_SUBTITLE =
+  "Add another Orderful organization to use in Claude. Enter that organization's API key — it stays bound to your account and is never shown to anyone else.";
 
 function escapeAttr(value: string): string {
   return value
@@ -39,8 +50,10 @@ const TEMPLATE_PATH = fileURLToPath(new URL('./oauth-login.html', import.meta.ur
 let loginTemplate: string | undefined;
 
 function loginPage(opts: {
+  action: string;
+  heading: string;
+  subtitle: string; // trusted HTML — callers escape any interpolated values
   hidden: Record<string, string | undefined>;
-  clientName?: string;
   invalid?: boolean;
 }): string {
   if (loginTemplate === undefined) {
@@ -52,11 +65,10 @@ function loginPage(opts: {
     .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(String(v))}">`)
     .join('\n      ');
 
-  const who = opts.clientName ? escapeAttr(opts.clientName) : 'An application';
-
   const replacements: Record<string, string> = {
-    '{{CLIENT_NAME}}': who,
-    '{{ACTION}}': escapeAttr(ORDERFUL_LOGIN_SUBMIT_PATH),
+    '{{ACTION}}': escapeAttr(opts.action),
+    '{{HEADING}}': escapeAttr(opts.heading),
+    '{{SUBTITLE}}': opts.subtitle,
     '{{HIDDEN_FIELDS}}': hiddenFields,
     '{{FORM_CLASS}}': opts.invalid ? 'invalid' : '',
   };
@@ -65,6 +77,28 @@ function loginPage(opts: {
     (html, [token, value]) => html.split(token).join(value),
     loginTemplate,
   );
+}
+
+function loginSubtitle(clientName?: string): string {
+  const who = clientName ? escapeAttr(clientName) : 'An application';
+  return `${who} wants to access Orderful on your behalf. Enter your own Orderful API key to connect — it authorizes only your requests and is never shown to other members.`;
+}
+
+// Minimal standalone page for connect link expiry / success states.
+function messagePage(title: string, message: string, ok = false): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeAttr(title)}</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-items:center;
+padding:32px;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+background:#faf9f7;color:#1a1815;-webkit-font-smoothing:antialiased}
+@media(prefers-color-scheme:dark){body{background:#0e0d0c;color:#f2efe9}}
+main{max-width:360px;text-align:center}
+.badge{width:48px;height:48px;border-radius:999px;display:grid;place-items:center;margin:0 auto 18px;
+font-size:24px;background:${ok ? 'rgba(34,160,90,.15)' : 'rgba(120,113,108,.15)'};color:${ok ? '#22a05a' : '#78716c'}}
+h1{font-size:20px;margin:0 0 8px;letter-spacing:-.02em}p{margin:0;color:#78716c;font-size:14.5px;line-height:1.55}
+@media(prefers-color-scheme:dark){p{color:#9c948b}}</style></head>
+<body><main><div class="badge">${ok ? '✓' : '⏳'}</div><h1>${escapeAttr(title)}</h1><p>${escapeAttr(message)}</p></main></body></html>`;
 }
 
 const clientsStore: OAuthRegisteredClientsStore = {
@@ -86,7 +120,9 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
     res.setHeader('Cache-Control', 'no-store');
     res.send(
       loginPage({
-        clientName: client.client_name,
+        action: ORDERFUL_LOGIN_SUBMIT_PATH,
+        heading: 'Connect Orderful to Claude',
+        subtitle: loginSubtitle(client.client_name),
         hidden: {
           client_id: client.client_id,
           redirect_uri: params.redirectUri,
@@ -122,7 +158,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
       clientId: rec.clientId,
       scopes: rec.scopes,
       resource: rec.resource,
-      orderfulKey: rec.orderfulKey,
+      profileId: rec.profileId,
     });
 
     return {
@@ -148,7 +184,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
       clientId: rec.clientId,
       scopes: grantedScopes,
       resource: rec.resource,
-      orderfulKey: rec.orderfulKey,
+      profileId: rec.profileId,
     });
 
     return {
@@ -169,7 +205,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
       scopes: rec.scopes,
       expiresAt: rec.expiresAtSec,
       resource: rec.resource ? new URL(rec.resource) : undefined,
-      extra: { orderfulKey: rec.orderfulKey },
+      extra: { profileId: rec.profileId, orderfulKey: rec.orderfulKey },
     };
   },
 
@@ -213,7 +249,9 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
     res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(
       loginPage({
-        clientName: client.client_name,
+        action: ORDERFUL_LOGIN_SUBMIT_PATH,
+        heading: 'Connect Orderful to Claude',
+        subtitle: loginSubtitle(client.client_name),
         invalid: true,
         hidden: { client_id: clientId, redirect_uri: redirectUri, code_challenge: codeChallenge, state, resource, scope },
       }),
@@ -225,19 +263,20 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
     return;
   }
 
-  const valid = await validateOrderfulKey(orderfulKey);
-  if (!valid) {
+  const org = await getOrganizationInfo(orderfulKey);
+  if (!org) {
     fail('That Orderful API key was rejected. Check it and try again.');
     return;
   }
 
+  const profileId = await createProfile(orderfulKey, org.id, org.name);
   const code = await createAuthCode({
     clientId,
     codeChallenge,
     redirectUri,
     resource,
     scopes,
-    orderfulKey,
+    profileId,
   });
 
   const url = new URL(redirectUri);
@@ -249,4 +288,89 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
     return;
   }
   res.redirect(302, url.href);
+};
+
+// ── Connect another org to an existing profile (via a one-time link) ──
+export const orderfulConnectPageHandler: RequestHandler = async (req: Request, res: Response) => {
+  const t = typeof req.query.t === 'string' ? req.query.t : '';
+  const profileId = t ? await peekConnectToken(t) : undefined;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  if (!profileId) {
+    res.status(400).send(
+      messagePage('Link expired', 'This connect link has expired or was already used. Ask Claude to generate a new one.'),
+    );
+    return;
+  }
+  res.send(
+    loginPage({
+      action: ORDERFUL_CONNECT_SUBMIT_PATH,
+      heading: 'Connect another organization',
+      subtitle: ADD_ORG_SUBTITLE,
+      hidden: { t },
+    }),
+  );
+};
+
+export const orderfulConnectSubmitHandler: RequestHandler = async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const orderfulKey = typeof body.orderful_key === 'string' ? body.orderful_key.trim() : '';
+  const t = typeof body.t === 'string' ? body.t : '';
+  const wantsJson = (req.get('x-requested-with') || '').toLowerCase() === 'xmlhttprequest';
+
+  const profileId = t ? await peekConnectToken(t) : undefined;
+  if (!profileId) {
+    const msg = 'This connect link has expired. Ask Claude to generate a new one.';
+    if (wantsJson) res.status(400).json({ error: msg });
+    else res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8').send(messagePage('Link expired', msg));
+    return;
+  }
+
+  const fail = (message: string) => {
+    if (wantsJson) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    res.status(400).setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(
+      loginPage({
+        action: ORDERFUL_CONNECT_SUBMIT_PATH,
+        heading: 'Connect another organization',
+        subtitle: ADD_ORG_SUBTITLE,
+        invalid: true,
+        hidden: { t },
+      }),
+    );
+  };
+
+  if (!orderfulKey) {
+    fail('Please enter your Orderful API key.');
+    return;
+  }
+
+  const org = await getOrganizationInfo(orderfulKey);
+  if (!org) {
+    fail('That Orderful API key was rejected. Check it and try again.');
+    return;
+  }
+
+  const added = await addOrgToProfile(profileId, org.id, org.name, orderfulKey);
+  if (!added) {
+    fail('Your session is no longer valid — reconnect Orderful from Claude.');
+    return;
+  }
+  await consumeConnectToken(t);
+
+  const doneUrl = `${ORDERFUL_CONNECT_DONE_PATH}?org=${encodeURIComponent(org.name)}`;
+  if (wantsJson) {
+    res.json({ redirect: doneUrl });
+    return;
+  }
+  res.redirect(302, doneUrl);
+};
+
+export const orderfulConnectDoneHandler: RequestHandler = (req: Request, res: Response) => {
+  const org = typeof req.query.org === 'string' ? req.query.org : 'Your organization';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(messagePage('Connected', `${org} is now connected and active. You can close this tab and return to Claude.`, true));
 };

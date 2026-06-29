@@ -8,16 +8,22 @@ export function setApiKey(key: string): void {
   cliApiKey = key;
 }
 
-// Cheap check used at OAuth login to reject bad keys before issuing tokens.
-export async function validateOrderfulKey(key: string): Promise<boolean> {
+// Resolve the organization a key belongs to, used at connect time to both
+// validate the key and label it. Returns null if the key is rejected.
+export async function getOrganizationInfo(key: string): Promise<{ id: string; name: string } | null> {
   try {
     const response = await fetch(`${BASE_URL}/v3/organizations/me`, {
       method: 'GET',
       headers: { accept: 'application/json', 'orderful-api-key': key },
     });
-    return response.ok;
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    const id = String(data.id ?? data.organizationId ?? '');
+    if (!id) return null;
+    const name = String(data.name ?? data.businessName ?? data.organizationName ?? 'Organization');
+    return { id, name };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -25,6 +31,10 @@ function getApiKey(): string {
   // HTTP mode: per-request credentials via AsyncLocalStorage
   const store = credentialStore.getStore();
   if (store?.ORDERFUL_API_KEY) return store.ORDERFUL_API_KEY;
+  // HTTP mode but no active org selected.
+  if (store?.PROFILE_ID) {
+    throw new Error('No active Orderful organization. Use connect_organization to add one, or switch_organization to pick one.');
+  }
   // Stdio mode: CLI argument
   if (cliApiKey) return cliApiKey;
   throw new Error('Orderful API key is required. Pass it as the first argument: `npx orderful <api-key>`');

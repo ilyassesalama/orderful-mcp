@@ -101,6 +101,20 @@ const clientKey = (id: string) => `${PREFIX}client:${id}`;
 const codeKey = (code: string) => `${PREFIX}code:${code}`;
 const accessKey = (token: string) => `${PREFIX}at:${token}`;
 const refreshKey = (token: string) => `${PREFIX}rt:${token}`;
+const profileKey = (id: string) => `${PREFIX}profile:${id}`;
+const connectKey = (token: string) => `${PREFIX}connect:${token}`;
+
+// A profile holds one member's connected orgs (each with its own encrypted key)
+// and which one is active. Tokens reference a profileId, not a raw key.
+interface OrgEntry {
+  orgId: string;
+  orgName: string;
+  encKey: string;
+}
+interface Profile {
+  organizations: OrgEntry[];
+  activeOrgId?: string;
+}
 
 interface AuthCodeRecord {
   clientId: string;
@@ -108,7 +122,7 @@ interface AuthCodeRecord {
   redirectUri: string;
   resource?: string;
   scopes: string[];
-  encKey: string;
+  profileId: string;
   expiresAt: number;
 }
 
@@ -116,7 +130,7 @@ interface TokenRecord {
   clientId: string;
   scopes: string[];
   resource?: string;
-  encKey: string;
+  profileId: string;
   expiresAt: number;
 }
 
@@ -130,24 +144,105 @@ export async function getClient(clientId: string): Promise<OAuthClientInformatio
   return raw ? (JSON.parse(raw) as OAuthClientInformationFull) : undefined;
 }
 
+// ── Profiles ─────────────────────────────────────
+async function loadProfile(profileId: string): Promise<Profile | undefined> {
+  const raw = await kv.get(profileKey(profileId));
+  return raw ? (JSON.parse(raw) as Profile) : undefined;
+}
+async function saveProfile(profileId: string, profile: Profile): Promise<void> {
+  await kv.set(profileKey(profileId), JSON.stringify(profile), CLIENT_TTL_MS);
+}
+
+export async function createProfile(orderfulKey: string, orgId: string, orgName: string): Promise<string> {
+  const profileId = randomBytes(24).toString('base64url');
+  await saveProfile(profileId, {
+    organizations: [{ orgId, orgName, encKey: encrypt(orderfulKey) }],
+    activeOrgId: orgId,
+  });
+  return profileId;
+}
+
+/** Add (or replace) an org in a profile and make it active. */
+export async function addOrgToProfile(
+  profileId: string,
+  orgId: string,
+  orgName: string,
+  orderfulKey: string,
+): Promise<boolean> {
+  const profile = await loadProfile(profileId);
+  if (!profile) return false;
+  const encKey = encrypt(orderfulKey);
+  const existing = profile.organizations.find((o) => o.orgId === orgId);
+  if (existing) {
+    existing.orgName = orgName;
+    existing.encKey = encKey;
+  } else {
+    profile.organizations.push({ orgId, orgName, encKey });
+  }
+  profile.activeOrgId = orgId;
+  await saveProfile(profileId, profile);
+  return true;
+}
+
+export async function setActiveOrg(profileId: string, orgId: string): Promise<boolean> {
+  const profile = await loadProfile(profileId);
+  if (!profile || !profile.organizations.some((o) => o.orgId === orgId)) return false;
+  profile.activeOrgId = orgId;
+  await saveProfile(profileId, profile);
+  return true;
+}
+
+/** Remove an org; if it was active, fall back to the first remaining one. */
+export async function removeOrgFromProfile(
+  profileId: string,
+  orgId: string,
+): Promise<{ removed: boolean; activeOrgId?: string }> {
+  const profile = await loadProfile(profileId);
+  if (!profile) return { removed: false };
+  const before = profile.organizations.length;
+  profile.organizations = profile.organizations.filter((o) => o.orgId !== orgId);
+  if (profile.organizations.length === before) return { removed: false, activeOrgId: profile.activeOrgId };
+  if (profile.activeOrgId === orgId) {
+    profile.activeOrgId = profile.organizations[0]?.orgId;
+  }
+  await saveProfile(profileId, profile);
+  return { removed: true, activeOrgId: profile.activeOrgId };
+}
+
+export interface OrgSummary {
+  orgId: string;
+  orgName: string;
+  active: boolean;
+}
+
+export async function listOrgs(profileId: string): Promise<OrgSummary[] | undefined> {
+  const profile = await loadProfile(profileId);
+  if (!profile) return undefined;
+  return profile.organizations.map((o) => ({
+    orgId: o.orgId,
+    orgName: o.orgName,
+    active: o.orgId === profile.activeOrgId,
+  }));
+}
+
+async function getActiveKey(profileId: string): Promise<string | undefined> {
+  const profile = await loadProfile(profileId);
+  if (!profile) return undefined;
+  const active = profile.organizations.find((o) => o.orgId === profile.activeOrgId);
+  return active ? decrypt(active.encKey) : undefined;
+}
+
+// ── Authorization codes ──────────────────────────
 export async function createAuthCode(input: {
   clientId: string;
   codeChallenge: string;
   redirectUri: string;
   resource?: string;
   scopes: string[];
-  orderfulKey: string;
+  profileId: string;
 }): Promise<string> {
   const code = randomBytes(32).toString('base64url');
-  const rec: AuthCodeRecord = {
-    clientId: input.clientId,
-    codeChallenge: input.codeChallenge,
-    redirectUri: input.redirectUri,
-    resource: input.resource,
-    scopes: input.scopes,
-    encKey: encrypt(input.orderfulKey),
-    expiresAt: Date.now() + AUTH_CODE_TTL_MS,
-  };
+  const rec: AuthCodeRecord = { ...input, expiresAt: Date.now() + AUTH_CODE_TTL_MS };
   await kv.set(codeKey(code), JSON.stringify(rec), AUTH_CODE_TTL_MS);
   return code;
 }
@@ -158,7 +253,7 @@ export async function peekAuthCodeChallenge(code: string): Promise<string | unde
 }
 
 export async function consumeAuthCode(code: string): Promise<
-  | { clientId: string; redirectUri: string; resource?: string; scopes: string[]; orderfulKey: string }
+  | { clientId: string; redirectUri: string; resource?: string; scopes: string[]; profileId: string }
   | undefined
 > {
   const raw = await kv.take(codeKey(code));
@@ -170,10 +265,11 @@ export async function consumeAuthCode(code: string): Promise<
     redirectUri: rec.redirectUri,
     resource: rec.resource,
     scopes: rec.scopes,
-    orderfulKey: decrypt(rec.encKey),
+    profileId: rec.profileId,
   };
 }
 
+// ── Tokens ───────────────────────────────────────
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
@@ -184,21 +280,20 @@ export async function issueTokens(input: {
   clientId: string;
   scopes: string[];
   resource?: string;
-  orderfulKey: string;
+  profileId: string;
 }): Promise<IssuedTokens> {
-  const encKey = encrypt(input.orderfulKey);
   const accessToken = randomBytes(32).toString('base64url');
   const refreshToken = randomBytes(32).toString('base64url');
   const now = Date.now();
 
   await kv.set(
     accessKey(accessToken),
-    JSON.stringify({ ...input, encKey, expiresAt: now + ACCESS_TOKEN_TTL_MS } satisfies TokenRecord),
+    JSON.stringify({ ...input, expiresAt: now + ACCESS_TOKEN_TTL_MS } satisfies TokenRecord),
     ACCESS_TOKEN_TTL_MS,
   );
   await kv.set(
     refreshKey(refreshToken),
-    JSON.stringify({ ...input, encKey, expiresAt: now + REFRESH_TOKEN_TTL_MS } satisfies TokenRecord),
+    JSON.stringify({ ...input, expiresAt: now + REFRESH_TOKEN_TTL_MS } satisfies TokenRecord),
     REFRESH_TOKEN_TTL_MS,
   );
 
@@ -209,7 +304,8 @@ export interface VerifiedToken {
   clientId: string;
   scopes: string[];
   resource?: string;
-  orderfulKey: string;
+  profileId: string;
+  orderfulKey?: string;
   expiresAtSec: number;
 }
 
@@ -225,13 +321,14 @@ export async function verifyAccessToken(token: string): Promise<VerifiedToken | 
     clientId: rec.clientId,
     scopes: rec.scopes,
     resource: rec.resource,
-    orderfulKey: decrypt(rec.encKey),
+    profileId: rec.profileId,
+    orderfulKey: await getActiveKey(rec.profileId),
     expiresAtSec: Math.floor(rec.expiresAt / 1000),
   };
 }
 
 export async function consumeRefreshToken(token: string): Promise<
-  { clientId: string; scopes: string[]; resource?: string; orderfulKey: string } | undefined
+  { clientId: string; scopes: string[]; resource?: string; profileId: string } | undefined
 > {
   const raw = await kv.take(refreshKey(token));
   if (!raw) return undefined;
@@ -241,11 +338,28 @@ export async function consumeRefreshToken(token: string): Promise<
     clientId: rec.clientId,
     scopes: rec.scopes,
     resource: rec.resource,
-    orderfulKey: decrypt(rec.encKey),
+    profileId: rec.profileId,
   };
 }
 
 export async function revokeToken(token: string): Promise<void> {
   await kv.del(accessKey(token));
   await kv.del(refreshKey(token));
+}
+
+// ── Connect links (add another org to an existing profile) ──
+const CONNECT_TOKEN_TTL_MS = 15 * 60_000; // 15 minutes
+
+export async function createConnectToken(profileId: string): Promise<string> {
+  const token = randomBytes(24).toString('base64url');
+  await kv.set(connectKey(token), profileId, CONNECT_TOKEN_TTL_MS);
+  return token;
+}
+
+export async function peekConnectToken(token: string): Promise<string | undefined> {
+  return kv.get(connectKey(token));
+}
+
+export async function consumeConnectToken(token: string): Promise<string | undefined> {
+  return kv.take(connectKey(token));
 }

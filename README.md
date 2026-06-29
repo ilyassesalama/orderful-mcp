@@ -112,6 +112,17 @@ The MCP endpoint also applies per-IP rate limiting and a 1 MB request size limit
 
 > **Per-user identity, no shared secret.** Because each member authenticates with their own key via OAuth, there's no `?key=` in the URL to leak across the team, and a member's key is never visible to anyone else. Rotate a key in Orderful at any time; that member just re-connects.
 
+### Multiple organizations
+
+A connected member can attach several Orderful organizations and switch between them from chat — one is "active" at a time and all tool calls use it. The AI drives this with four tools:
+
+- `list_organizations` — show connected orgs and which is active.
+- `connect_organization` — returns a secure, one-time link (expires in 15 min); the member opens it, pastes that org's API key, and it becomes active. Keys are entered on the page, never in chat.
+- `switch_organization` — make a connected org active (by name or id).
+- `disconnect_organization` — remove one.
+
+So *"connect me to another Orderful account"* → the AI hands over a link → paste the key → done; *"switch to Acme"* / *"disconnect Acme"* are plain tool calls. These tools are only available on the hosted (HTTP/OAuth) server. (Stdio mode is single-org — the key is a CLI argument.)
+
 ### State, restarts, and scaling
 
 OAuth state (registered clients, authorization codes, access/refresh tokens) is stored in **Redis when `REDIS_URL` is set**, otherwise in an **in-memory map**.
@@ -154,6 +165,7 @@ All tools are exposed with an `orderful_` prefix (e.g. `orderful_get_organizatio
 | Trading Partners       | `search_trading_partner`, `create_trading_request`                                                                                                               |
 | Communication Channels | `create_as2_channel`, `create_sftp_inbound_channel`, `create_sftp_outbound_channel`, `list_communication_channels`                                               |
 | Document Relationships | `get_document_relationship`, `update_document_relationship`                                                                                                      |
+| Organizations (hosted) | `list_organizations`, `connect_organization`, `switch_organization`, `disconnect_organization`                                                                   |
 
 
 

@@ -55,7 +55,14 @@ async function startHttp() {
     orderfulOAuthProvider,
     orderfulLoginSubmitHandler,
     ORDERFUL_LOGIN_SUBMIT_PATH,
+    orderfulConnectPageHandler,
+    orderfulConnectSubmitHandler,
+    orderfulConnectDoneHandler,
+    ORDERFUL_CONNECT_PATH,
+    ORDERFUL_CONNECT_SUBMIT_PATH,
+    ORDERFUL_CONNECT_DONE_PATH,
   } = await import('./oauth-provider.js');
+  const { registerAccountTools } = await import('./account-tools.js');
 
   const port = process.env.PORT || 3000;
 
@@ -91,6 +98,11 @@ async function startHttp() {
 
   app.post(ORDERFUL_LOGIN_SUBMIT_PATH, express.urlencoded({ extended: false }), orderfulLoginSubmitHandler);
 
+  // Connect-another-organization flow (one-time link from the connect tool).
+  app.get(ORDERFUL_CONNECT_PATH, orderfulConnectPageHandler);
+  app.post(ORDERFUL_CONNECT_SUBMIT_PATH, express.urlencoded({ extended: false }), orderfulConnectSubmitHandler);
+  app.get(ORDERFUL_CONNECT_DONE_PATH, orderfulConnectDoneHandler);
+
   // Fresh server per request; the member's key arrives in req.auth.extra.
   app.all(
     mcpPath,
@@ -99,15 +111,19 @@ async function startHttp() {
     express.json({ limit: JSON_LIMIT }),
     async (req, res) => {
       try {
-        const apiKey = (req.auth?.extra as { orderfulKey?: string } | undefined)?.orderfulKey;
-        if (!apiKey) {
+        const auth = req.auth?.extra as { profileId?: string; orderfulKey?: string } | undefined;
+        if (!auth?.profileId) {
           res.status(401).json({ error: 'invalid_token' });
           return;
         }
 
-        await credentialStore.run({ ORDERFUL_API_KEY: apiKey }, async () => {
+        const credentials: Record<string, string> = { PROFILE_ID: auth.profileId };
+        if (auth.orderfulKey) credentials.ORDERFUL_API_KEY = auth.orderfulKey;
+
+        await credentialStore.run(credentials, async () => {
           const server = new McpServer(serverInfo);
           registerAllTools(server);
+          registerAccountTools(server, baseUrl);
           const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
           await server.connect(transport);
           await transport.handleRequest(req, res, req.body);
