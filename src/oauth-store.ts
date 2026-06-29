@@ -56,7 +56,8 @@ interface Kv {
   del(key: string): Promise<void>;
 }
 
-const PREFIX = 'orderful-mcp:';
+const NAMESPACE = process.env.OAUTH_NAMESPACE || 'orderful-mcp';
+const PREFIX = `${NAMESPACE}:`;
 
 class MemoryKv implements Kv {
   private map = new Map<string, { value: string; expiresAt: number }>();
@@ -110,7 +111,9 @@ class RedisKv implements Kv {
 }
 
 const kv: Kv = process.env.REDIS_URL ? new RedisKv(process.env.REDIS_URL) : new MemoryKv();
-console.log(`[oauth-store] backend: ${process.env.REDIS_URL ? 'redis' : 'in-memory'}`);
+console.error(
+  `[oauth-store] backend: ${process.env.REDIS_URL ? 'redis' : 'in-memory'}, namespace: ${NAMESPACE}`,
+);
 
 const clientKey = (id: string) => `${PREFIX}client:${id}`;
 const codeKey = (code: string) => `${PREFIX}code:${code}`;

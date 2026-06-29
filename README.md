@@ -86,6 +86,7 @@ This exposes:
 | `MCP_PATH` | no | Path the MCP endpoint is mounted at (default `/mcp`). |
 | `OAUTH_ENCRYPTION_KEY` | recommended | Secret used to encrypt stored Orderful keys at rest (AES-256-GCM). Generate once (`openssl rand -hex 32`) and keep it stable — if it changes, all issued tokens become invalid and members must reconnect. If unset, a random per-process key is used (tokens won't survive a restart). |
 | `REDIS_URL` | recommended (prod) | When set, OAuth state (clients, codes, tokens) is stored in Redis instead of in-process memory. This lets tokens survive restarts/redeploys and lets you run multiple instances. If unset, falls back to an in-memory store (fine for local dev / a single instance). |
+| `OAUTH_NAMESPACE` | no | Prefix for all Redis keys (default `orderful-mcp`). Give each MCP server a distinct value so several can share one Redis instance without colliding — e.g. `orderful-mcp`, `acme-crm-mcp`, etc. |
 
 ### How a team connects
 
@@ -116,7 +117,9 @@ The MCP endpoint also applies per-IP rate limiting and a 1 MB request size limit
 OAuth state (registered clients, authorization codes, access/refresh tokens) is stored in **Redis when `REDIS_URL` is set**, otherwise in an **in-memory map**.
 
 - **In-memory** (no `REDIS_URL`): zero setup, but state is cleared on every restart/redeploy — members re-click **Connect** afterwards — and it only works with a single instance.
-- **Redis** (`REDIS_URL` set): tokens survive restarts/redeploys, and multiple instances behind a load balancer all share the same state. This is the recommended production setup. Use a stable `OAUTH_ENCRYPTION_KEY` so stored keys stay decryptable across restarts. Keys are namespaced under `orderful-mcp:` and expire automatically (codes 1 min, access tokens 1 h, refresh tokens 30 d).
+- **Redis** (`REDIS_URL` set): tokens survive restarts/redeploys, and multiple instances behind a load balancer all share the same state. This is the recommended production setup. Use a stable `OAUTH_ENCRYPTION_KEY` so stored keys stay decryptable across restarts. Keys are prefixed with `OAUTH_NAMESPACE` (default `orderful-mcp`) and expire automatically (codes 1 min, access tokens 1 h, refresh tokens 30 d).
+
+> **Sharing one Redis across several MCP servers:** point each server at the same `REDIS_URL` but give each a distinct `OAUTH_NAMESPACE` (e.g. `orderful-mcp`, `acme-crm-mcp`). Their keys live in separate spaces and never collide.
 
 #### Deploying on Railway
 
