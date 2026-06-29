@@ -1,32 +1,28 @@
 /**
  * OAuth state store for hosted (remote) mode.
  *
- * Holds the four kinds of durable OAuth state that outlive a single request:
- *   - registered clients   (client_id -> client metadata)
- *   - authorization codes   (~60s, single-use)
- *   - access tokens         (~1h)
- *   - refresh tokens        (~30d)
+ * Holds the durable OAuth state that outlives a single request: registered
+ * clients, authorization codes (single-use), and access/refresh tokens. Each
+ * member's Orderful API key is encrypted at rest (AES-256-GCM) and mapped to
+ * the tokens we issue.
  *
- * Each member's Orderful API key is captured during the authorization flow and
- * mapped to the tokens we issue. The key is the actual credential, so it is
- * encrypted at rest with AES-256-GCM — this matters once this store is backed
- * by Redis/a DB (see note below); in-memory it is defence-in-depth.
- *
- * This implementation is a single-instance, in-memory store. To run multiple
- * instances behind a load balancer, replace the `Map`s with a shared backend
- * (Redis, Postgres, …) — the public surface here is intentionally small so
- * that swap is mechanical. Keep the encrypt/decrypt calls in place when you do.
+ * Backend is chosen at startup: if REDIS_URL is set the state lives in Redis
+ * (survives restarts, shared across instances — the production setup, e.g.
+ * Railway's Redis add-on); otherwise it falls back to an in-memory map (fine
+ * for local dev and single-instance deploys, but cleared on restart).
  */
 import { randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
+import { Redis } from 'ioredis';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 export const AUTH_CODE_TTL_MS = 60_000; // 1 minute
 export const ACCESS_TOKEN_TTL_MS = 60 * 60_000; // 1 hour
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
+const CLIENT_TTL_MS = 365 * 24 * 60 * 60_000; // clients effectively persist
 
-// Uses OAUTH_ENCRYPTION_KEY if set, otherwise a random per-process key. With a
-// random key, tokens do not survive a restart — fine for the in-memory store,
-// but set OAUTH_ENCRYPTION_KEY (and a shared backend) for persistence.
+// Uses OAUTH_ENCRYPTION_KEY if set, otherwise a random per-process key. A random
+// key means tokens can't be decrypted after a restart — set OAUTH_ENCRYPTION_KEY
+// (stable, secret) so tokens stored in Redis stay valid across deploys.
 const ENC_KEY = createHash('sha256')
   .update(process.env.OAUTH_ENCRYPTION_KEY || randomBytes(32).toString('hex'))
   .digest();
@@ -49,6 +45,78 @@ function decrypt(blob: string): string {
   ]).toString('utf8');
 }
 
+/**
+ * Minimal key/value contract the store needs. `take` is an atomic get-and-delete
+ * (used to enforce single-use auth codes and refresh-token rotation).
+ */
+interface Kv {
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string, ttlMs: number): Promise<void>;
+  take(key: string): Promise<string | undefined>;
+  del(key: string): Promise<void>;
+}
+
+const PREFIX = 'orderful-mcp:';
+
+class MemoryKv implements Kv {
+  private map = new Map<string, { value: string; expiresAt: number }>();
+  constructor() {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [k, v] of this.map) if (v.expiresAt < now) this.map.delete(k);
+    }, 5 * 60_000).unref();
+  }
+  async get(key: string) {
+    const entry = this.map.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt < Date.now()) {
+      this.map.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+  async set(key: string, value: string, ttlMs: number) {
+    this.map.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+  async take(key: string) {
+    const value = await this.get(key);
+    this.map.delete(key);
+    return value;
+  }
+  async del(key: string) {
+    this.map.delete(key);
+  }
+}
+
+class RedisKv implements Kv {
+  private redis: Redis;
+  constructor(url: string) {
+    this.redis = new Redis(url, { maxRetriesPerRequest: 3 });
+    this.redis.on('error', (e: Error) => console.error('[oauth-store] redis error:', e.message));
+  }
+  async get(key: string) {
+    return (await this.redis.get(key)) ?? undefined;
+  }
+  async set(key: string, value: string, ttlMs: number) {
+    await this.redis.set(key, value, 'PX', ttlMs);
+  }
+  async take(key: string) {
+    // GETDEL is atomic — prevents an auth code / refresh token being used twice.
+    return (await this.redis.getdel(key)) ?? undefined;
+  }
+  async del(key: string) {
+    await this.redis.del(key);
+  }
+}
+
+const kv: Kv = process.env.REDIS_URL ? new RedisKv(process.env.REDIS_URL) : new MemoryKv();
+console.log(`[oauth-store] backend: ${process.env.REDIS_URL ? 'redis' : 'in-memory'}`);
+
+const clientKey = (id: string) => `${PREFIX}client:${id}`;
+const codeKey = (code: string) => `${PREFIX}code:${code}`;
+const accessKey = (token: string) => `${PREFIX}at:${token}`;
+const refreshKey = (token: string) => `${PREFIX}rt:${token}`;
+
 interface AuthCodeRecord {
   clientId: string;
   codeChallenge: string;
@@ -67,30 +135,26 @@ interface TokenRecord {
   expiresAt: number;
 }
 
-const clients = new Map<string, OAuthClientInformationFull>();
-const authCodes = new Map<string, AuthCodeRecord>();
-const accessTokens = new Map<string, TokenRecord>();
-const refreshTokens = new Map<string, TokenRecord>();
-
-export function saveClient(client: OAuthClientInformationFull): OAuthClientInformationFull {
-  clients.set(client.client_id, client);
+export async function saveClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
+  await kv.set(clientKey(client.client_id), JSON.stringify(client), CLIENT_TTL_MS);
   return client;
 }
 
-export function getClient(clientId: string): OAuthClientInformationFull | undefined {
-  return clients.get(clientId);
+export async function getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+  const raw = await kv.get(clientKey(clientId));
+  return raw ? (JSON.parse(raw) as OAuthClientInformationFull) : undefined;
 }
 
-export function createAuthCode(input: {
+export async function createAuthCode(input: {
   clientId: string;
   codeChallenge: string;
   redirectUri: string;
   resource?: string;
   scopes: string[];
   orderfulKey: string;
-}): string {
+}): Promise<string> {
   const code = randomBytes(32).toString('base64url');
-  authCodes.set(code, {
+  const rec: AuthCodeRecord = {
     clientId: input.clientId,
     codeChallenge: input.codeChallenge,
     redirectUri: input.redirectUri,
@@ -98,23 +162,25 @@ export function createAuthCode(input: {
     scopes: input.scopes,
     encKey: encrypt(input.orderfulKey),
     expiresAt: Date.now() + AUTH_CODE_TTL_MS,
-  });
+  };
+  await kv.set(codeKey(code), JSON.stringify(rec), AUTH_CODE_TTL_MS);
   return code;
 }
 
-export function peekAuthCodeChallenge(code: string): string | undefined {
-  const rec = authCodes.get(code);
-  if (!rec || rec.expiresAt < Date.now()) return undefined;
-  return rec.codeChallenge;
+export async function peekAuthCodeChallenge(code: string): Promise<string | undefined> {
+  const raw = await kv.get(codeKey(code));
+  return raw ? (JSON.parse(raw) as AuthCodeRecord).codeChallenge : undefined;
 }
 
 /** Consume an auth code (single-use). Returns the record + decrypted key, or undefined. */
-export function consumeAuthCode(code: string):
+export async function consumeAuthCode(code: string): Promise<
   | { clientId: string; redirectUri: string; resource?: string; scopes: string[]; orderfulKey: string }
-  | undefined {
-  const rec = authCodes.get(code);
-  authCodes.delete(code); // one-time use regardless of validity
-  if (!rec || rec.expiresAt < Date.now()) return undefined;
+  | undefined
+> {
+  const raw = await kv.take(codeKey(code));
+  if (!raw) return undefined;
+  const rec = JSON.parse(raw) as AuthCodeRecord;
+  if (rec.expiresAt < Date.now()) return undefined;
   return {
     clientId: rec.clientId,
     redirectUri: rec.redirectUri,
@@ -130,30 +196,27 @@ export interface IssuedTokens {
   expiresInSec: number;
 }
 
-export function issueTokens(input: {
+export async function issueTokens(input: {
   clientId: string;
   scopes: string[];
   resource?: string;
   orderfulKey: string;
-}): IssuedTokens {
+}): Promise<IssuedTokens> {
   const encKey = encrypt(input.orderfulKey);
   const accessToken = randomBytes(32).toString('base64url');
   const refreshToken = randomBytes(32).toString('base64url');
+  const now = Date.now();
 
-  accessTokens.set(accessToken, {
-    clientId: input.clientId,
-    scopes: input.scopes,
-    resource: input.resource,
-    encKey,
-    expiresAt: Date.now() + ACCESS_TOKEN_TTL_MS,
-  });
-  refreshTokens.set(refreshToken, {
-    clientId: input.clientId,
-    scopes: input.scopes,
-    resource: input.resource,
-    encKey,
-    expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
-  });
+  await kv.set(
+    accessKey(accessToken),
+    JSON.stringify({ ...input, encKey, expiresAt: now + ACCESS_TOKEN_TTL_MS } satisfies TokenRecord),
+    ACCESS_TOKEN_TTL_MS,
+  );
+  await kv.set(
+    refreshKey(refreshToken),
+    JSON.stringify({ ...input, encKey, expiresAt: now + REFRESH_TOKEN_TTL_MS } satisfies TokenRecord),
+    REFRESH_TOKEN_TTL_MS,
+  );
 
   return { accessToken, refreshToken, expiresInSec: Math.floor(ACCESS_TOKEN_TTL_MS / 1000) };
 }
@@ -166,11 +229,12 @@ export interface VerifiedToken {
   expiresAtSec: number;
 }
 
-export function verifyAccessToken(token: string): VerifiedToken | undefined {
-  const rec = accessTokens.get(token);
-  if (!rec) return undefined;
+export async function verifyAccessToken(token: string): Promise<VerifiedToken | undefined> {
+  const raw = await kv.get(accessKey(token));
+  if (!raw) return undefined;
+  const rec = JSON.parse(raw) as TokenRecord;
   if (rec.expiresAt < Date.now()) {
-    accessTokens.delete(token);
+    await kv.del(accessKey(token));
     return undefined;
   }
   return {
@@ -183,15 +247,13 @@ export function verifyAccessToken(token: string): VerifiedToken | undefined {
 }
 
 /** Rotate a refresh token into a fresh access/refresh pair. */
-export function consumeRefreshToken(token: string):
-  | { clientId: string; scopes: string[]; resource?: string; orderfulKey: string }
-  | undefined {
-  const rec = refreshTokens.get(token);
-  if (!rec || rec.expiresAt < Date.now()) {
-    refreshTokens.delete(token);
-    return undefined;
-  }
-  refreshTokens.delete(token); // rotate
+export async function consumeRefreshToken(token: string): Promise<
+  { clientId: string; scopes: string[]; resource?: string; orderfulKey: string } | undefined
+> {
+  const raw = await kv.take(refreshKey(token));
+  if (!raw) return undefined;
+  const rec = JSON.parse(raw) as TokenRecord;
+  if (rec.expiresAt < Date.now()) return undefined;
   return {
     clientId: rec.clientId,
     scopes: rec.scopes,
@@ -200,16 +262,7 @@ export function consumeRefreshToken(token: string):
   };
 }
 
-export function revokeToken(token: string): void {
-  accessTokens.delete(token);
-  refreshTokens.delete(token);
+export async function revokeToken(token: string): Promise<void> {
+  await kv.del(accessKey(token));
+  await kv.del(refreshKey(token));
 }
-
-// Sweep expired entries periodically so the maps don't grow unbounded.
-const SWEEP_INTERVAL_MS = 5 * 60_000;
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of authCodes) if (v.expiresAt < now) authCodes.delete(k);
-  for (const [k, v] of accessTokens) if (v.expiresAt < now) accessTokens.delete(k);
-  for (const [k, v] of refreshTokens) if (v.expiresAt < now) refreshTokens.delete(k);
-}, SWEEP_INTERVAL_MS).unref();

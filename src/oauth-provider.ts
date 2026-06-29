@@ -125,7 +125,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
   },
 
   async challengeForAuthorizationCode(_client: OAuthClientInformationFull, authorizationCode: string) {
-    const challenge = peekAuthCodeChallenge(authorizationCode);
+    const challenge = await peekAuthCodeChallenge(authorizationCode);
     if (!challenge) throw new Error('Invalid or expired authorization code');
     return challenge;
   },
@@ -136,14 +136,14 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
     _codeVerifier?: string,
     redirectUri?: string,
   ): Promise<OAuthTokens> {
-    const rec = consumeAuthCode(authorizationCode);
+    const rec = await consumeAuthCode(authorizationCode);
     if (!rec) throw new Error('Invalid or expired authorization code');
     if (rec.clientId !== client.client_id) throw new Error('Authorization code was issued to a different client');
     if (redirectUri !== undefined && redirectUri !== rec.redirectUri) {
       throw new Error('redirect_uri mismatch');
     }
 
-    const { accessToken, refreshToken, expiresInSec } = issueTokens({
+    const { accessToken, refreshToken, expiresInSec } = await issueTokens({
       clientId: rec.clientId,
       scopes: rec.scopes,
       resource: rec.resource,
@@ -164,12 +164,12 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
     refreshToken: string,
     scopes?: string[],
   ): Promise<OAuthTokens> {
-    const rec = consumeRefreshToken(refreshToken);
+    const rec = await consumeRefreshToken(refreshToken);
     if (!rec) throw new Error('Invalid or expired refresh token');
     if (rec.clientId !== client.client_id) throw new Error('Refresh token was issued to a different client');
 
     const grantedScopes = scopes && scopes.length ? scopes : rec.scopes;
-    const { accessToken, refreshToken: newRefresh, expiresInSec } = issueTokens({
+    const { accessToken, refreshToken: newRefresh, expiresInSec } = await issueTokens({
       clientId: rec.clientId,
       scopes: grantedScopes,
       resource: rec.resource,
@@ -186,7 +186,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
   },
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    const rec = storeVerifyAccessToken(token);
+    const rec = await storeVerifyAccessToken(token);
     if (!rec) throw new Error('Invalid or expired access token');
     return {
       token,
@@ -200,7 +200,7 @@ export const orderfulOAuthProvider: OAuthServerProvider = {
   },
 
   async revokeToken(_client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest) {
-    storeRevokeToken(request.token);
+    await storeRevokeToken(request.token);
   },
 };
 
@@ -221,7 +221,7 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
 
   // Re-validate the client and redirect_uri server-side — never trust the
   // hidden fields for the redirect target (open-redirect / code-injection).
-  const client = getClient(clientId);
+  const client = await getClient(clientId);
   if (!client || !codeChallenge) {
     res.status(400).json({ error: 'invalid_request', error_description: 'Unknown client or missing PKCE challenge' });
     return;
@@ -253,7 +253,7 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
     return;
   }
 
-  const code = createAuthCode({
+  const code = await createAuthCode({
     clientId,
     codeChallenge,
     redirectUri,

@@ -84,7 +84,8 @@ This exposes:
 | `OAUTH_ISSUER_URL` | yes (prod) | The externally reachable HTTPS base URL of this server. Used as the OAuth issuer and to build discovery metadata. Defaults to `http://localhost:<PORT>` for local dev. |
 | `PORT` | no | Listen port (default `3000`). |
 | `MCP_PATH` | no | Path the MCP endpoint is mounted at (default `/mcp`). |
-| `OAUTH_ENCRYPTION_KEY` | recommended | Secret used to encrypt stored Orderful keys at rest (AES-256-GCM). If unset, a random per-process key is used and issued tokens won't survive a restart. |
+| `OAUTH_ENCRYPTION_KEY` | recommended | Secret used to encrypt stored Orderful keys at rest (AES-256-GCM). Generate once (`openssl rand -hex 32`) and keep it stable — if it changes, all issued tokens become invalid and members must reconnect. If unset, a random per-process key is used (tokens won't survive a restart). |
+| `REDIS_URL` | recommended (prod) | When set, OAuth state (clients, codes, tokens) is stored in Redis instead of in-process memory. This lets tokens survive restarts/redeploys and lets you run multiple instances. If unset, falls back to an in-memory store (fine for local dev / a single instance). |
 
 ### How a team connects
 
@@ -110,9 +111,22 @@ The MCP endpoint also applies per-IP rate limiting and a 1 MB request size limit
 
 > **Per-user identity, no shared secret.** Because each member authenticates with their own key via OAuth, there's no `?key=` in the URL to leak across the team, and a member's key is never visible to anyone else. Rotate a key in Orderful at any time; that member just re-connects.
 
-### Scaling beyond one instance
+### State, restarts, and scaling
 
-OAuth state (clients, codes, tokens) is held **in-memory** in a single process — fine for one instance. To run multiple instances behind a load balancer, replace the `Map`s in `src/oauth-store.ts` with a shared backend (Redis, Postgres, …); the surface is intentionally small so the swap is mechanical. Set a stable `OAUTH_ENCRYPTION_KEY` so stored keys decrypt across instances.
+OAuth state (registered clients, authorization codes, access/refresh tokens) is stored in **Redis when `REDIS_URL` is set**, otherwise in an **in-memory map**.
+
+- **In-memory** (no `REDIS_URL`): zero setup, but state is cleared on every restart/redeploy — members re-click **Connect** afterwards — and it only works with a single instance.
+- **Redis** (`REDIS_URL` set): tokens survive restarts/redeploys, and multiple instances behind a load balancer all share the same state. This is the recommended production setup. Use a stable `OAUTH_ENCRYPTION_KEY` so stored keys stay decryptable across restarts. Keys are namespaced under `orderful-mcp:` and expire automatically (codes 1 min, access tokens 1 h, refresh tokens 30 d).
+
+#### Deploying on Railway
+
+1. Push this repo to a Railway service (Nixpacks builds it with `pnpm`; the `dist/` build runs `node dist/index.js`).
+2. Add the **Redis** plugin to your project (New → Database → Redis). Railway exposes its connection string as `REDIS_URL` — reference it in your service variables as `REDIS_URL=${{Redis.REDIS_URL}}`.
+3. Set the service variables:
+   - `MCP_TRANSPORT=http`
+   - `OAUTH_ISSUER_URL=https://<your-railway-domain>` (your public HTTPS domain, no trailing path)
+   - `OAUTH_ENCRYPTION_KEY=<output of `openssl rand -hex 32`>`
+4. Railway runs a single replica by default and terminates TLS for you, so no extra reverse-proxy config is needed.
 
 ## Getting an API key
 
