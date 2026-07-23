@@ -64,8 +64,8 @@ async function startHttp() {
   } = await import('./oauth-provider.js');
   const { registerAccountTools } = await import('./account-tools.js');
   const { getDownloadToken, getBundleToken } = await import('./oauth-store.js');
-  const { orderfulApiDownload, extensionForContentType } = await import('./api.js');
-  const { zipSync } = await import('fflate');
+  const { orderfulApiDownload, extensionForContentType, mapLimit } = await import('./api.js');
+  const { Zip, ZipPassThrough } = await import('fflate');
 
   const port = process.env.PORT || 3000;
 
@@ -159,6 +159,7 @@ async function startHttp() {
       const utf8Name = encodeURIComponent(`${rec.filenameBase}${ext}`);
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
       res.send(data);
     } catch {
       if (!res.headersSent) res.status(502).send('Failed to fetch the file from Orderful.');
@@ -175,21 +176,40 @@ async function startHttp() {
         res.status(404).send('This download link is invalid or has expired. Ask the assistant for a fresh one.');
         return;
       }
-      const entries: Record<string, Uint8Array> = {};
-      await credentialStore.run({ ORDERFUL_API_KEY: rec.orderfulKey }, async () => {
-        for (const file of rec.files) {
+      const files = await credentialStore.run({ ORDERFUL_API_KEY: rec.orderfulKey }, () =>
+        mapLimit(rec.files, 4, async (file) => {
           const { data, contentType } = await orderfulApiDownload(file.endpoint);
-          let name = `${file.filenameBase}${extensionForContentType(contentType)}`;
-          for (let n = 2; entries[name]; n++) name = `${file.filenameBase} (${n})${extensionForContentType(contentType)}`;
-          entries[name] = new Uint8Array(data);
-        }
-      });
-      const zip = zipSync(entries);
+          return { filenameBase: file.filenameBase, data, contentType };
+        }),
+      );
+
       const asciiName = `${rec.bundleName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')}.zip`;
       const utf8Name = encodeURIComponent(`${rec.bundleName}.zip`);
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
-      res.send(Buffer.from(zip));
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+
+      // Stream the ZIP in store mode: the files are already-compressed
+      // formats (PDF/XLSX), so deflating again would cost CPU for no gain.
+      const zip = new Zip((zipErr, chunk, final) => {
+        if (zipErr) {
+          res.destroy(zipErr);
+          return;
+        }
+        res.write(Buffer.from(chunk));
+        if (final) res.end();
+      });
+      const used = new Set<string>();
+      for (const file of files) {
+        const ext = extensionForContentType(file.contentType);
+        let name = `${file.filenameBase}${ext}`;
+        for (let n = 2; used.has(name); n++) name = `${file.filenameBase} (${n})${ext}`;
+        used.add(name);
+        const entry = new ZipPassThrough(name);
+        zip.add(entry);
+        entry.push(new Uint8Array(file.data), true);
+      }
+      zip.end();
     } catch {
       if (!res.headersSent) res.status(502).send('Failed to build the ZIP from Orderful.');
     }

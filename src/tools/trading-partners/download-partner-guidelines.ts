@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import * as z from 'zod/v4';
-import { orderfulApiCall, orderfulApiDownload, extensionForContentType } from '../../api.js';
+import { orderfulApiCall, orderfulApiDownload, extensionForContentType, mapLimit } from '../../api.js';
 import { credentialStore } from '../../credential-store.js';
 import { ok, err, type ToolRegistrar } from '../utils.js';
 
@@ -156,7 +156,8 @@ export const register: ToolRegistrar = (server) => {
           await mkdir(dir, { recursive: true });
         }
 
-        for (const target of targets.values()) {
+        // Up to 5 guideline sets in flight at once; results keep target order.
+        const results = await mapLimit([...targets.values()], 5, async (target) => {
           try {
             let name = `guideline-set-${target.guidelineSetId}`;
             try {
@@ -168,6 +169,8 @@ export const register: ToolRegistrar = (server) => {
 
             const prefix = target.partnerName ? `${target.partnerName} - ` : '';
             const suffix = target.environment === 'TEST' ? ' (TEST)' : '';
+            // No await between the has() check and add(), so concurrent
+            // workers can't hand out the same name.
             let base = sanitizeFilename(`${prefix}${name}${suffix}`);
             if (usedNames.has(base)) base = `${base} (${target.guidelineSetId})`;
             usedNames.add(base);
@@ -184,24 +187,33 @@ export const register: ToolRegistrar = (server) => {
             if (makeLink) {
               entry.downloadUrl = await makeLink(`/v2/guideline-sets/${target.guidelineSetId}/download`, base);
               entry.linkExpiresIn = '1 hour';
-              bundleFiles.push({ endpoint: `/v2/guideline-sets/${target.guidelineSetId}/download`, filenameBase: base });
-            } else {
-              const { data, contentType } = await orderfulApiDownload(
-                `/v2/guideline-sets/${target.guidelineSetId}/download`,
-              );
-              const filePath = join(dir!, `${base}${extensionForContentType(contentType)}`);
-              await writeFile(filePath, data);
-              entry.file = filePath;
-              entry.sizeBytes = data.length;
+              return {
+                entry,
+                bundleFile: { endpoint: `/v2/guideline-sets/${target.guidelineSetId}/download`, filenameBase: base },
+              };
             }
-            downloaded.push(entry);
+            const { data, contentType } = await orderfulApiDownload(
+              `/v2/guideline-sets/${target.guidelineSetId}/download`,
+            );
+            const filePath = join(dir!, `${base}${extensionForContentType(contentType)}`);
+            await writeFile(filePath, data);
+            entry.file = filePath;
+            entry.sizeBytes = data.length;
+            return { entry };
           } catch (e) {
-            failed.push({
-              guidelineSetId: target.guidelineSetId,
-              partnerName: target.partnerName || undefined,
-              error: e instanceof Error ? e.message : String(e),
-            });
+            return {
+              failure: {
+                guidelineSetId: target.guidelineSetId,
+                partnerName: target.partnerName || undefined,
+                error: e instanceof Error ? e.message : String(e),
+              },
+            };
           }
+        });
+        for (const r of results) {
+          if (r.entry) downloaded.push(r.entry);
+          if (r.bundleFile) bundleFiles.push(r.bundleFile);
+          if (r.failure) failed.push(r.failure);
         }
 
         // 4. Report partners/relationships that had nothing to download.
@@ -224,9 +236,9 @@ export const register: ToolRegistrar = (server) => {
         // One extra link that zips everything, when there are several files.
         let bundleDownloadUrl: string | undefined;
         if (makeBundleLink && bundleFiles.length > 1) {
-          const partnerNames = [...new Set([...targets.values()].map((t) => t.partnerName).filter(Boolean))];
+          const bundlePartnerNames = [...new Set([...targets.values()].map((t) => t.partnerName).filter(Boolean))];
           const bundleName = sanitizeFilename(
-            partnerNames.length === 1 ? `${partnerNames[0]} guidelines` : 'Orderful partner guidelines',
+            bundlePartnerNames.length === 1 ? `${bundlePartnerNames[0]} guidelines` : 'Orderful partner guidelines',
           );
           bundleDownloadUrl = await makeBundleLink(bundleName, bundleFiles);
         }
