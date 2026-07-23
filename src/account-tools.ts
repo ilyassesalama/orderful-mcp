@@ -56,7 +56,10 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
     {
       title: 'Connect Another Organization',
       description:
-        "Get a secure link to connect another Orderful organization. Open the link, paste that organization's API key, and it becomes the active organization. Returns a link to give the user.",
+        'Start connecting another Orderful organization. Present the returned message to the user exactly as ' +
+        'given (it is written for them and guides them through the steps), then call ' +
+        'wait_for_organization_connection with connect_token to detect when they finish. Do not paraphrase the ' +
+        'message or expose the connect_token to the user.',
     },
     async () => {
       const pid = profileId();
@@ -65,11 +68,16 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
       const link = new URL(ORDERFUL_CONNECT_PATH, baseUrl);
       link.searchParams.set('t', token);
       return ok({
-        url: link.href,
         connect_token: token,
+        message:
+          `**[Connect your organization](${link.href})** — click the link above, then:\n\n` +
+          `1. Paste the API key for the organization you want to add.\n` +
+          `2. Submit — the organization is verified and set as active.\n` +
+          `3. Come back to this chat; I'll pick up the connection automatically.\n\n` +
+          `_The link is secure and expires in 15 minutes._`,
         hint:
-          `Give the user this link to connect another organization (expires in 15 minutes): ${link.href}. ` +
-          `Then call wait_for_organization_connection with connect_token to be notified when they finish.`,
+          'Show `message` to the user verbatim (it is markdown with a clickable link), then call ' +
+          'wait_for_organization_connection with the connect_token above.',
       });
     },
   );
