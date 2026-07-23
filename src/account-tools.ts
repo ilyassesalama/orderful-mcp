@@ -77,6 +77,7 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
   server.registerTool(
     'orderful_wait_for_organization_connection',
     {
+      annotations: { readOnlyHint: true },
       title: 'Wait for Organization Connection',
       description:
         'After giving the user a connect link, call this to wait until they finish connecting the organization ' +
