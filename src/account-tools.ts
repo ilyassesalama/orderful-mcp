@@ -7,12 +7,18 @@ import {
   setActiveOrg,
   removeOrgFromProfile,
   createConnectToken,
+  peekConnectToken,
   type OrgSummary,
 } from './oauth-store.js';
 import { ORDERFUL_CONNECT_PATH } from './oauth-provider.js';
 
 const profileId = () => credentialStore.getStore()?.PROFILE_ID;
 const NO_PROFILE = 'Organization management is only available on the hosted server.';
+
+// Kept under common proxy/LB request timeouts; the wait tool is re-callable to extend.
+const WAIT_DEADLINE_MS = 90_000;
+const WAIT_INTERVAL_MS = 1_500;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function matchOrg(orgs: OrgSummary[], query: string): OrgSummary | undefined {
   const q = query.trim().toLowerCase();
@@ -60,7 +66,65 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
       link.searchParams.set('t', token);
       return ok({
         url: link.href,
-        hint: `Give the user this link to connect another organization (expires in 15 minutes): ${link.href}`,
+        connect_token: token,
+        hint:
+          `Give the user this link to connect another organization (expires in 15 minutes): ${link.href}. ` +
+          `Then call wait_for_organization_connection with connect_token to be notified when they finish.`,
+      });
+    },
+  );
+
+  server.registerTool(
+    'orderful_wait_for_organization_connection',
+    {
+      title: 'Wait for Organization Connection',
+      description:
+        'After giving the user a connect link, call this to wait until they finish connecting the organization ' +
+        'in their browser. Blocks for up to ~90 seconds. If it returns pending (not connected yet), call it again ' +
+        'with the same connect_token to keep waiting. Returns the newly active organization once connected.',
+      inputSchema: {
+        connect_token: z.string().describe('The connect_token returned by connect_organization'),
+      },
+    },
+    async ({ connect_token }) => {
+      const pid = profileId();
+      if (!pid) return err(NO_PROFILE);
+
+      const start = Date.now();
+      let sawPending = false;
+      while (Date.now() - start < WAIT_DEADLINE_MS) {
+        const pendingProfile = await peekConnectToken(connect_token);
+        if (pendingProfile) {
+          if (pendingProfile !== pid) return err('That connect link belongs to a different account.');
+          sawPending = true;
+          await sleep(WAIT_INTERVAL_MS);
+          continue;
+        }
+
+        // Token gone after we saw it pending = the browser submit consumed it. Gone on
+        // the first check is ambiguous (expired vs already used), so ask to verify instead.
+        if (!sawPending) {
+          return err(
+            'Could not confirm the connection — the link may have expired or was already used. ' +
+              'Call list_organizations to check which organizations are connected.',
+          );
+        }
+        const orgs = (await listOrgs(pid)) ?? [];
+        const active = orgs.find((o) => o.active);
+        return ok({
+          connected: true,
+          active: active?.orgName ?? null,
+          organizations: orgs,
+          message: active ? `Connected. Active organization is now ${active.orgName}.` : 'Organization connected.',
+        });
+      }
+
+      return ok({
+        connected: false,
+        pending: true,
+        hint:
+          'Not connected yet. Call wait_for_organization_connection again with the same connect_token to keep ' +
+          'waiting, or check with the user whether they still intend to connect.',
       });
     },
   );
