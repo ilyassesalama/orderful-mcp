@@ -164,7 +164,8 @@ All tools are exposed with an `orderful_` prefix (e.g. `orderful_get_organizatio
 | Labels                 | `generate_label`                                                                                                                                                 |
 | Trading Partners       | `search_trading_partner`, `create_trading_request`                                                                                                               |
 | Communication Channels | `create_as2_channel`, `create_sftp_inbound_channel`, `create_sftp_outbound_channel`, `list_communication_channels`                                               |
-| Document Relationships | `get_document_relationship`, `update_document_relationship`                                                                                                      |
+| Document Relationships | `get_document_relationship`, `update_document_relationship`, `list_document_relationships`                                                                       |
+| Guidelines             | `get_guidelines`, `list_guideline_sets`, `download_guideline_pdf`                                                                                                |
 | Organizations (hosted) | `list_organizations`, `connect_organization`, `switch_organization`, `disconnect_organization`                                                                   |
 
 

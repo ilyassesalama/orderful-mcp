@@ -40,6 +40,30 @@ function getApiKey(): string {
   throw new Error('Orderful API key is required. Pass it as the first argument: `npx orderful <api-key>`');
 }
 
+// Binary GET (e.g. guideline-set PDF downloads). Returns the raw bytes
+// instead of parsing JSON.
+export async function orderfulApiBinary(
+  endpoint: string,
+): Promise<{ data: Buffer; contentType: string }> {
+  const url = `${BASE_URL}${endpoint}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'accept': 'application/octet-stream', 'orderful-api-key': getApiKey() },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(
+      `Orderful API error: ${response.status} ${response.statusText} - ${url}${errorBody ? ` - ${errorBody}` : ''}`,
+    );
+  }
+
+  return {
+    data: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+  };
+}
+
 export async function orderfulApiCall(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
