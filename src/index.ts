@@ -63,6 +63,9 @@ async function startHttp() {
     ORDERFUL_CONNECT_DONE_PATH,
   } = await import('./oauth-provider.js');
   const { registerAccountTools } = await import('./account-tools.js');
+  const { getDownloadToken, getBundleToken } = await import('./oauth-store.js');
+  const { orderfulApiDownload, extensionForContentType } = await import('./api.js');
+  const { zipSync } = await import('fflate');
 
   const port = process.env.PORT || 3000;
 
@@ -135,6 +138,62 @@ async function startHttp() {
       }
     },
   );
+
+  // Temporary tokenized file downloads (e.g. partner guideline documents).
+  // The token was minted by a tool call and is bound to one Orderful endpoint
+  // plus the member's key; it expires on its own (1 h).
+  app.get('/downloads/:token', rateLimitMiddleware, async (req, res) => {
+    try {
+      const token = req.params.token;
+      const rec = typeof token === 'string' ? await getDownloadToken(token) : undefined;
+      if (!rec) {
+        res.status(404).send('This download link is invalid or has expired. Ask the assistant for a fresh one.');
+        return;
+      }
+      const { data, contentType } = await credentialStore.run(
+        { ORDERFUL_API_KEY: rec.orderfulKey },
+        () => orderfulApiDownload(rec.endpoint),
+      );
+      const ext = extensionForContentType(contentType);
+      const asciiName = `${rec.filenameBase.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')}${ext}`;
+      const utf8Name = encodeURIComponent(`${rec.filenameBase}${ext}`);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
+      res.send(data);
+    } catch {
+      if (!res.headersSent) res.status(502).send('Failed to fetch the file from Orderful.');
+    }
+  });
+
+  // Bundle download: fetches every file in the bundle from Orderful and
+  // streams them back as a single ZIP.
+  app.get('/downloads/bundle/:token', rateLimitMiddleware, async (req, res) => {
+    try {
+      const token = req.params.token;
+      const rec = typeof token === 'string' ? await getBundleToken(token) : undefined;
+      if (!rec) {
+        res.status(404).send('This download link is invalid or has expired. Ask the assistant for a fresh one.');
+        return;
+      }
+      const entries: Record<string, Uint8Array> = {};
+      await credentialStore.run({ ORDERFUL_API_KEY: rec.orderfulKey }, async () => {
+        for (const file of rec.files) {
+          const { data, contentType } = await orderfulApiDownload(file.endpoint);
+          let name = `${file.filenameBase}${extensionForContentType(contentType)}`;
+          for (let n = 2; entries[name]; n++) name = `${file.filenameBase} (${n})${extensionForContentType(contentType)}`;
+          entries[name] = new Uint8Array(data);
+        }
+      });
+      const zip = zipSync(entries);
+      const asciiName = `${rec.bundleName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')}.zip`;
+      const utf8Name = encodeURIComponent(`${rec.bundleName}.zip`);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`);
+      res.send(Buffer.from(zip));
+    } catch {
+      if (!res.headersSent) res.status(502).send('Failed to build the ZIP from Orderful.');
+    }
+  });
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true });

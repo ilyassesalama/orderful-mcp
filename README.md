@@ -75,6 +75,7 @@ This exposes:
 - `POST /mcp` — the MCP endpoint (Streamable HTTP), protected by a Bearer access token
 - `GET /authorize`, `POST /token`, `POST /register`, `POST /revoke` — OAuth 2.1 endpoints
 - `GET /.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp` — discovery metadata
+- `GET /downloads/:token` and `GET /downloads/bundle/:token` — temporary tokenized file downloads (e.g. partner guideline documents, individually or as one ZIP; links expire after 1 hour)
 - `GET /health` — health check
 
 ### Environment variables

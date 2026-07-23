@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import * as z from 'zod/v4';
-import { orderfulApiCall, orderfulApiDownload } from '../../api.js';
+import { orderfulApiCall, orderfulApiDownload, extensionForContentType } from '../../api.js';
+import { credentialStore } from '../../credential-store.js';
 import { ok, err, type ToolRegistrar } from '../utils.js';
 
 interface DocumentRelationship {
@@ -32,17 +33,6 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 180);
 }
 
-function extensionFor(contentType: string): string {
-  if (contentType.includes('pdf')) return '.pdf';
-  if (contentType.includes('spreadsheetml')) return '.xlsx';
-  if (contentType.includes('wordprocessingml')) return '.docx';
-  if (contentType.includes('ms-excel')) return '.xls';
-  if (contentType.includes('json')) return '.json';
-  if (contentType.includes('csv')) return '.csv';
-  if (contentType.includes('zip')) return '.zip';
-  return '.bin';
-}
-
 async function fetchAllRelationships(queryParam: string, ids: number[]): Promise<DocumentRelationship[]> {
   const all: DocumentRelationship[] = [];
   const limit = 100;
@@ -67,7 +57,7 @@ export const register: ToolRegistrar = (server) => {
       annotations: { readOnlyHint: true },
       title: 'Download Partner Guidelines',
       description:
-        'Download the EDI guideline documents (PDF/Excel) of one or more trading partners and save them to a local directory. Provide partner organization IDs (from orderful_list_trading_partners) and/or EDI account IDs (from orderful_search_trading_partner); the tool finds every document-relationship with those partners, collects their published guideline sets (prod and test), and downloads each one. You can also pass explicit guidelineSetIds directly. Files are written on the machine running this MCP server. Returns a per-partner summary of saved files and any partners or relationships without guidelines.',
+        'Download the EDI guideline documents (PDF/Excel) of one or more trading partners. Provide partner organization IDs (from orderful_list_trading_partners) and/or EDI account IDs (from orderful_search_trading_partner); the tool finds every document-relationship with those partners, collects their published guideline sets (prod and test), and fetches each one. You can also pass explicit guidelineSetIds directly. On the hosted (HTTP) server it returns temporary download links (valid 1 hour) that must be shown to the user — per file, plus a single all-in-one ZIP link when there are several; in stdio mode it saves the files to a local directory. Also reports any partners or relationships without guidelines.',
       inputSchema: {
         partnerIds: z
           .array(z.number().int())
@@ -84,7 +74,9 @@ export const register: ToolRegistrar = (server) => {
         outputDir: z
           .string()
           .optional()
-          .describe('Directory to save the PDFs into (created if missing). Defaults to ./orderful-guidelines'),
+          .describe(
+            'Stdio mode only: directory to save the files into (created if missing). Defaults to ./orderful-guidelines. Ignored on the hosted server, which returns download links instead.',
+          ),
       },
     },
     async ({ partnerIds, partnerEdiAccountIds, guidelineSetIds, outputDir }) => {
@@ -131,12 +123,38 @@ export const register: ToolRegistrar = (server) => {
           }
         }
 
-        // 3. Download each guideline set.
-        const dir = resolve(outputDir ?? 'orderful-guidelines');
-        await mkdir(dir, { recursive: true });
+        // 3. Deliver each guideline set. On the hosted (HTTP) server the
+        //    files live on the server's disk, useless to the member — so mint
+        //    temporary download links served by this server instead. In stdio
+        //    mode the server runs on the user's machine, so save to disk.
+        const store = credentialStore.getStore();
+        const httpMode = Boolean(store?.PROFILE_ID);
+
         const usedNames = new Set<string>();
         const downloaded: Array<Record<string, unknown>> = [];
         const failed: Array<Record<string, unknown>> = [];
+        const bundleFiles: Array<{ endpoint: string; filenameBase: string }> = [];
+
+        let dir: string | undefined;
+        let makeLink: ((endpoint: string, filenameBase: string) => Promise<string>) | undefined;
+        let makeBundleLink:
+          | ((bundleName: string, files: Array<{ endpoint: string; filenameBase: string }>) => Promise<string>)
+          | undefined;
+        if (httpMode) {
+          const { createDownloadToken, createBundleToken } = await import('../../oauth-store.js');
+          const port = process.env.PORT || 3000;
+          const baseUrl = new URL(
+            process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || `http://localhost:${port}`,
+          );
+          const apiKey = store?.ORDERFUL_API_KEY ?? '';
+          makeLink = async (endpoint, filenameBase) =>
+            new URL(`/downloads/${await createDownloadToken(apiKey, endpoint, filenameBase)}`, baseUrl).href;
+          makeBundleLink = async (bundleName, files) =>
+            new URL(`/downloads/bundle/${await createBundleToken(apiKey, bundleName, files)}`, baseUrl).href;
+        } else {
+          dir = resolve(outputDir ?? 'orderful-guidelines');
+          await mkdir(dir, { recursive: true });
+        }
 
         for (const target of targets.values()) {
           try {
@@ -147,25 +165,36 @@ export const register: ToolRegistrar = (server) => {
             } catch {
               // metadata is best-effort; fall back to the id-based name
             }
-            const { data, contentType } = await orderfulApiDownload(`/v2/guideline-sets/${target.guidelineSetId}/download`);
 
             const prefix = target.partnerName ? `${target.partnerName} - ` : '';
             const suffix = target.environment === 'TEST' ? ' (TEST)' : '';
             let base = sanitizeFilename(`${prefix}${name}${suffix}`);
             if (usedNames.has(base)) base = `${base} (${target.guidelineSetId})`;
             usedNames.add(base);
-            const filePath = join(dir, `${base}${extensionFor(contentType)}`);
-            await writeFile(filePath, data);
 
-            downloaded.push({
+            const entry: Record<string, unknown> = {
               guidelineSetId: target.guidelineSetId,
               partnerId: target.partnerId || undefined,
               partnerName: target.partnerName || undefined,
               environment: target.environment,
               transactionTypes: target.transactionTypes,
-              file: filePath,
-              sizeBytes: data.length,
-            });
+              guidelineName: name,
+            };
+
+            if (makeLink) {
+              entry.downloadUrl = await makeLink(`/v2/guideline-sets/${target.guidelineSetId}/download`, base);
+              entry.linkExpiresIn = '1 hour';
+              bundleFiles.push({ endpoint: `/v2/guideline-sets/${target.guidelineSetId}/download`, filenameBase: base });
+            } else {
+              const { data, contentType } = await orderfulApiDownload(
+                `/v2/guideline-sets/${target.guidelineSetId}/download`,
+              );
+              const filePath = join(dir!, `${base}${extensionForContentType(contentType)}`);
+              await writeFile(filePath, data);
+              entry.file = filePath;
+              entry.sizeBytes = data.length;
+            }
+            downloaded.push(entry);
           } catch (e) {
             failed.push({
               guidelineSetId: target.guidelineSetId,
@@ -192,8 +221,23 @@ export const register: ToolRegistrar = (server) => {
           ...(partnerEdiAccountIds ?? []).filter((id) => !foundEdiAccountIds.has(id)),
         ];
 
+        // One extra link that zips everything, when there are several files.
+        let bundleDownloadUrl: string | undefined;
+        if (makeBundleLink && bundleFiles.length > 1) {
+          const partnerNames = [...new Set([...targets.values()].map((t) => t.partnerName).filter(Boolean))];
+          const bundleName = sanitizeFilename(
+            partnerNames.length === 1 ? `${partnerNames[0]} guidelines` : 'Orderful partner guidelines',
+          );
+          bundleDownloadUrl = await makeBundleLink(bundleName, bundleFiles);
+        }
+
         return ok({
-          outputDir: dir,
+          ...(httpMode
+            ? { note: 'Present each downloadUrl to the user as a clickable link — links expire in 1 hour.' }
+            : { outputDir: dir }),
+          ...(bundleDownloadUrl
+            ? { bundleDownloadUrl, bundleNote: 'Single link that downloads all files above as one ZIP.' }
+            : {}),
           downloaded,
           failed,
           relationshipsWithoutGuidelines,

@@ -78,6 +78,17 @@ export async function orderfulApiCall(
   return JSON.parse(text) as unknown;
 }
 
+export function extensionForContentType(contentType: string): string {
+  if (contentType.includes('pdf')) return '.pdf';
+  if (contentType.includes('spreadsheetml')) return '.xlsx';
+  if (contentType.includes('wordprocessingml')) return '.docx';
+  if (contentType.includes('ms-excel')) return '.xls';
+  if (contentType.includes('json')) return '.json';
+  if (contentType.includes('csv')) return '.csv';
+  if (contentType.includes('zip')) return '.zip';
+  return '.bin';
+}
+
 // Binary GET (e.g. guideline-set PDFs). Returns the raw bytes plus the
 // server-reported content type so callers can pick a file extension.
 export async function orderfulApiDownload(

@@ -363,3 +363,70 @@ export async function peekConnectToken(token: string): Promise<string | undefine
 export async function consumeConnectToken(token: string): Promise<string | undefined> {
   return kv.take(connectKey(token));
 }
+
+// ── Download links (temporary tokenized file downloads, HTTP mode) ──
+// The tool mints a token bound to an Orderful endpoint + the caller's key;
+// GET /downloads/:token proxies the file. Reusable until it expires (links
+// in chat may be prefetched, so they must not be one-time).
+const DOWNLOAD_TOKEN_TTL_MS = 60 * 60_000; // 1 hour
+const downloadKey = (token: string) => `${PREFIX}dl:${token}`;
+
+interface DownloadRecord {
+  encKey: string;
+  endpoint: string;
+  filenameBase: string;
+}
+
+export async function createDownloadToken(
+  orderfulKey: string,
+  endpoint: string,
+  filenameBase: string,
+): Promise<string> {
+  const token = randomBytes(24).toString('base64url');
+  const rec: DownloadRecord = { encKey: encrypt(orderfulKey), endpoint, filenameBase };
+  await kv.set(downloadKey(token), JSON.stringify(rec), DOWNLOAD_TOKEN_TTL_MS);
+  return token;
+}
+
+export async function getDownloadToken(
+  token: string,
+): Promise<{ orderfulKey: string; endpoint: string; filenameBase: string } | undefined> {
+  const raw = await kv.get(downloadKey(token));
+  if (!raw) return undefined;
+  const rec = JSON.parse(raw) as DownloadRecord;
+  return { orderfulKey: decrypt(rec.encKey), endpoint: rec.endpoint, filenameBase: rec.filenameBase };
+}
+
+// Bundle tokens: one link that zips several files together.
+const bundleKey = (token: string) => `${PREFIX}dlz:${token}`;
+
+export interface BundleFile {
+  endpoint: string;
+  filenameBase: string;
+}
+
+interface BundleRecord {
+  encKey: string;
+  bundleName: string;
+  files: BundleFile[];
+}
+
+export async function createBundleToken(
+  orderfulKey: string,
+  bundleName: string,
+  files: BundleFile[],
+): Promise<string> {
+  const token = randomBytes(24).toString('base64url');
+  const rec: BundleRecord = { encKey: encrypt(orderfulKey), bundleName, files };
+  await kv.set(bundleKey(token), JSON.stringify(rec), DOWNLOAD_TOKEN_TTL_MS);
+  return token;
+}
+
+export async function getBundleToken(
+  token: string,
+): Promise<{ orderfulKey: string; bundleName: string; files: BundleFile[] } | undefined> {
+  const raw = await kv.get(bundleKey(token));
+  if (!raw) return undefined;
+  const rec = JSON.parse(raw) as BundleRecord;
+  return { orderfulKey: decrypt(rec.encKey), bundleName: rec.bundleName, files: rec.files };
+}
