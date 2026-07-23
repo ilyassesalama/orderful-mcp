@@ -40,6 +40,8 @@ import { register as generateLabel } from './labels/generate-label.js';
 // Trading Partners
 import { register as searchTradingPartner } from './trading-partners/search-trading-partner.js';
 import { register as createTradingRequest } from './trading-partners/create-trading-request.js';
+import { register as listTradingPartners } from './trading-partners/list-trading-partners.js';
+import { register as downloadPartnerGuidelines } from './trading-partners/download-partner-guidelines.js';
 
 // Communication Channels
 import { register as createAs2Channel } from './communication-channels/create-as2-channel.js';
@@ -50,12 +52,6 @@ import { register as listCommunicationChannels } from './communication-channels/
 // Document Relationships
 import { register as getDocumentRelationship } from './document-relationships/get-document-relationship.js';
 import { register as updateDocumentRelationship } from './document-relationships/update-document-relationship.js';
-import { register as listDocumentRelationships } from './document-relationships/list-document-relationships.js';
-
-// Guidelines
-import { register as getGuidelines } from './guidelines/get-guidelines.js';
-import { register as listGuidelineSets } from './guidelines/list-guideline-sets.js';
-import { register as downloadGuidelinePdf } from './guidelines/download-guideline-pdf.js';
 
 const tools: ToolRegistrar[] = [
   getOrganization,
@@ -78,16 +74,14 @@ const tools: ToolRegistrar[] = [
   generateLabel,
   searchTradingPartner,
   createTradingRequest,
+  listTradingPartners,
+  downloadPartnerGuidelines,
   createAs2Channel,
   createSftpInboundChannel,
   createSftpOutboundChannel,
   listCommunicationChannels,
   getDocumentRelationship,
   updateDocumentRelationship,
-  listDocumentRelationships,
-  getGuidelines,
-  listGuidelineSets,
-  downloadGuidelinePdf,
 ];
 
 export function registerAllTools(server: McpServer): void {

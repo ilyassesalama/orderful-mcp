@@ -12,7 +12,8 @@ With this server connected, your AI assistant can:
 - Inspect transaction messages and validation errors
 - Approve, fail, and poll deliveries
 - Manage acknowledgments (functional ACKs / 997)
-- Search trading partners and create trading requests
+- List and search trading partners and create trading requests
+- Download trading partners' EDI guideline documents (PDF/Excel) in bulk by partner ID
 - Set up AS2 and SFTP (inbound/outbound) communication channels
 - Convert data between EDI and JSON
 - Generate shipping labels
@@ -162,10 +163,9 @@ All tools are exposed with an `orderful_` prefix (e.g. `orderful_get_organizatio
 | Attachments            | `get_attachment`                                                                                                                                                 |
 | Conversion             | `convert_data`                                                                                                                                                   |
 | Labels                 | `generate_label`                                                                                                                                                 |
-| Trading Partners       | `search_trading_partner`, `create_trading_request`                                                                                                               |
+| Trading Partners       | `list_trading_partners`, `search_trading_partner`, `create_trading_request`, `download_partner_guidelines`                                                       |
 | Communication Channels | `create_as2_channel`, `create_sftp_inbound_channel`, `create_sftp_outbound_channel`, `list_communication_channels`                                               |
-| Document Relationships | `get_document_relationship`, `update_document_relationship`, `list_document_relationships`                                                                       |
-| Guidelines             | `get_guidelines`, `list_guideline_sets`, `download_guideline_pdf`                                                                                                |
+| Document Relationships | `get_document_relationship`, `update_document_relationship`                                                                                                      |
 | Organizations (hosted) | `list_organizations`, `connect_organization`, `switch_organization`, `disconnect_organization`                                                                   |
 
 
@@ -180,6 +180,7 @@ Once connected, try asking your assistant:
 - *"Create an SFTP outbound channel for our new trading partner"*
 - *"Show me all failed deliveries from this week and approve the ones blocked on validation Y"*
 - *"Generate a shipping label for delivery 12345"*
+- *"Download the EDI guidelines for Safeway and Great Northern into ./guidelines"*
 
 
 
