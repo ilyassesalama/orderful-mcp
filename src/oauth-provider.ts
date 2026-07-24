@@ -88,6 +88,7 @@ function loginSubtitle(clientName?: string): string {
 function messagePage(title: string, message: string, ok = false): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeAttr(title)}</title>
+<link rel="icon" type="image/png" href="/favicon.png">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-items:center;
 padding:32px;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;

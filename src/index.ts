@@ -8,12 +8,18 @@ import { credentialStore } from './credential-store.js';
 import { setApiKey } from './api.js';
 
 const faviconSvg = readFileSync(fileURLToPath(new URL('./favicon.svg', import.meta.url)));
+const iconPng = readFileSync(fileURLToPath(new URL('./icon.png', import.meta.url)));
 
 const serverInfo = {
-  name: 'orderful-edi',
-  title: 'Orderful EDI',
+  name: 'orderful',
+  title: 'Orderful',
   version: '1.0.0',
   icons: [
+    {
+      src: `data:image/png;base64,${iconPng.toString('base64')}`,
+      mimeType: 'image/png',
+      sizes: ['256x256'],
+    },
     {
       src: `data:image/svg+xml;base64,${faviconSvg.toString('base64')}`,
       mimeType: 'image/svg+xml',
@@ -36,7 +42,7 @@ async function startStdio() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('Orderful EDI MCP server running on stdio');
+  console.error('Orderful MCP server running on stdio');
 }
 
 async function startHttp() {
@@ -81,13 +87,17 @@ async function startHttp() {
   const app = express();
   app.use(securityHeaders);
 
-  const sendFavicon = (_req: import('express').Request, res: import('express').Response) => {
-    res.setHeader('Content-Type', 'image/svg+xml');
+  type Res = import('express').Response;
+  const sendImage = (res: Res, type: string, body: Buffer) => {
+    res.setHeader('Content-Type', type);
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(faviconSvg);
+    res.send(body);
   };
-  app.get('/favicon.svg', sendFavicon);
-  app.get('/favicon.ico', sendFavicon);
+  // /favicon.ico serves PNG (not SVG): favicon resolvers expect a raster here and
+  // reject SVG-typed bytes, which is what made clients fall back to another icon.
+  app.get('/favicon.svg', (_req, res: Res) => sendImage(res, 'image/svg+xml', faviconSvg));
+  app.get('/favicon.png', (_req, res: Res) => sendImage(res, 'image/png', iconPng));
+  app.get('/favicon.ico', (_req, res: Res) => sendImage(res, 'image/png', iconPng));
 
   app.use(
     mcpAuthRouter({
@@ -95,7 +105,7 @@ async function startHttp() {
       issuerUrl: baseUrl,
       baseUrl,
       resourceServerUrl,
-      resourceName: 'Orderful EDI MCP',
+      resourceName: 'Orderful',
     }),
   );
 
@@ -221,7 +231,7 @@ async function startHttp() {
 
   app.listen(port, () => {
     console.log(
-      `Orderful EDI MCP server listening on port ${port} (HTTP mode), MCP endpoint at ${mcpPath}, OAuth issuer ${baseUrl.href}`,
+      `Orderful MCP server listening on port ${port} (HTTP mode), MCP endpoint at ${mcpPath}, OAuth issuer ${baseUrl.href}`,
     );
   });
 }
