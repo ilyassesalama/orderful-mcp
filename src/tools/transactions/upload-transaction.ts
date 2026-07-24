@@ -6,7 +6,7 @@ export const register: ToolRegistrar = (server) => {
   server.registerTool(
     'orderful_upload_transaction',
     {
-      annotations: { readOnlyHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false },
       title: 'Upload Transaction',
       description:
         'Upload an EDI X12 transaction to Orderful. Accepts raw EDI X12 content and submits it as a new EDI job.',

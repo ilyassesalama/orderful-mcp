@@ -54,6 +54,7 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
   server.registerTool(
     'orderful_connect_organization',
     {
+      annotations: { readOnlyHint: false, destructiveHint: false },
       title: 'Connect Another Organization',
       description:
         'Start connecting another Orderful organization. Present the returned message to the user exactly as ' +
@@ -141,6 +142,7 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
   server.registerTool(
     'orderful_switch_organization',
     {
+      annotations: { readOnlyHint: false, destructiveHint: false },
       title: 'Switch Active Organization',
       description: 'Switch which connected Orderful organization is active for subsequent requests.',
       inputSchema: { organization: z.string().describe('Name or ID of the organization to switch to') },
@@ -163,6 +165,7 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
   server.registerTool(
     'orderful_disconnect_organization',
     {
+      annotations: { readOnlyHint: false, destructiveHint: true },
       title: 'Disconnect Organization',
       description: 'Remove a connected Orderful organization from your account.',
       inputSchema: { organization: z.string().describe('Name or ID of the organization to disconnect') },
