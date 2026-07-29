@@ -20,6 +20,10 @@ With this server connected, your AI assistant can:
 - Manage document relationships and attachments
 - Query your organization, relationships, and polling buckets
 
+### Interactive transaction view (MCP Apps)
+
+`list_transactions` ships an [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) view: on hosts that support the apps extension (claude.ai, Claude Desktop, …) the results render as an interactive inline table — filter transactions as you type, color-coded validation/delivery/acknowledgment statuses, and click any row to ask the assistant about that transaction. Hosts without apps support just use the regular text output; nothing breaks.
+
 
 
 ## Quick start
@@ -200,7 +204,7 @@ pnpm build    # compile to dist/
 pnpm start    # run compiled output
 ```
 
-The project is plain TypeScript with no build step beyond `tsc`. Each tool lives in its own file under `src/tools/<category>/` and is registered in `src/tools/index.ts`.
+The project is plain TypeScript. `pnpm build` runs `tsc` plus `scripts/build-ui.mjs`, which bundles each MCP Apps view (`src/ui/*-view.ts`) with esbuild and inlines it into its HTML shell (`src/ui/*.html`), producing self-contained files in `dist/ui/`. Each tool lives in its own file under `src/tools/<category>/` and is registered in `src/tools/index.ts`.
 
 ## Contributing
 

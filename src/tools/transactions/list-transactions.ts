@@ -1,12 +1,32 @@
+import { readFileSync } from 'node:fs';
 import * as z from 'zod/v4';
+import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { orderfulApiCall } from '../../api.js';
-import { ok, err, type ToolRegistrar } from '../utils.js';
+import { err, type ToolRegistrar } from '../utils.js';
+
+// MCP Apps view: hosts that support the apps extension (claude.ai, Claude
+// Desktop, …) render this tool's result as an interactive table; others
+// just use the text content.
+const VIEW_URI = 'ui://orderful/transactions.html';
+const viewHtml = () => readFileSync(new URL('../../ui/transactions.html', import.meta.url), 'utf8');
 
 export const register: ToolRegistrar = (server) => {
-  server.registerTool(
+  registerAppResource(
+    server,
+    'Orderful Transactions View',
+    VIEW_URI,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => ({
+      contents: [{ uri: VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: viewHtml() }],
+    }),
+  );
+
+  registerAppTool(
+    server,
     'orderful_list_transactions',
     {
       annotations: { readOnlyHint: true },
+      _meta: { ui: { resourceUri: VIEW_URI } },
       title: 'List Transactions',
       description:
         'List Orderful transactions with optional filters. Returns paginated results (max 100 per request, newest first). Use nextCursor/prevCursor for pagination.',
@@ -40,7 +60,11 @@ export const register: ToolRegistrar = (server) => {
         if (params.prevCursor) query.set('prevCursor', params.prevCursor);
 
         const qs = query.toString();
-        return ok(await orderfulApiCall(`/v3/transactions${qs ? `?${qs}` : ''}`));
+        const page = await orderfulApiCall(`/v3/transactions${qs ? `?${qs}` : ''}`);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(page, null, 2) }],
+          structuredContent: page as Record<string, unknown>,
+        };
       } catch (e) {
         return err(e);
       }
