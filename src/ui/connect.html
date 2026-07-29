@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Orderful Organization</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #faf9f7; --fg: #1a1815; --muted: #78716c; --line: #e7e2da;
+    --accent: #1a1815; --accent-fg: #faf9f7;
+    --good: #1a7f4b; --good-bg: rgba(34, 160, 90, 0.13);
+    --bad: #b3382c; --bad-bg: rgba(214, 69, 53, 0.1);
+    font-size: 14px;
+  }
+  :root[data-theme="dark"] {
+    --bg: #171512; --fg: #f2efe9; --muted: #9c948b; --line: #2e2a24;
+    --accent: #f2efe9; --accent-fg: #171512;
+    --good: #4fc98a; --bad: #f0806f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171512; --fg: #f2efe9; --muted: #9c948b; --line: #2e2a24;
+      --accent: #f2efe9; --accent-fg: #171512;
+      --good: #4fc98a; --bad: #f0806f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: transparent; color: var(--fg);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root {
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px; max-width: 460px;
+  }
+  h1 { font-size: 15px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  p.sub { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  form { display: flex; gap: 8px; }
+  input {
+    flex: 1; min-width: 0; padding: 9px 12px; font: inherit; font-size: 13.5px;
+    color: inherit; background: transparent;
+    border: 1px solid var(--line); border-radius: 9px; outline: none;
+  }
+  input:focus { border-color: var(--muted); }
+  button {
+    padding: 9px 16px; font: inherit; font-size: 13.5px; font-weight: 600;
+    color: var(--accent-fg); background: var(--accent);
+    border: 0; border-radius: 9px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .status { margin: 10px 0 0; font-size: 13px; min-height: 18px; }
+  .status.error { color: var(--bad); }
+  .status.muted { color: var(--muted); }
+  .done { display: flex; align-items: center; gap: 12px; }
+  .done .badge {
+    width: 38px; height: 38px; flex: none; border-radius: 999px;
+    display: grid; place-items: center; font-size: 19px;
+    background: var(--good-bg); color: var(--good);
+  }
+  .done h1 { margin: 0 0 2px; }
+  .done p { margin: 0; color: var(--muted); font-size: 13px; }
+  .fallback a { color: inherit; font-weight: 600; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="form-state">
+    <h1>Connect another organization</h1>
+    <p class="sub">Paste that organization's Orderful API key. It's sent straight to this connector, verified with
+    Orderful, and never shown to anyone — not even in this chat.</p>
+    <form id="form">
+      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Orderful API key" aria-label="Orderful API key">
+      <button id="submit" type="submit">Connect</button>
+    </form>
+    <p class="status" id="status"></p>
+  </div>
+  <div id="done-state" class="done hidden">
+    <div class="badge">✓</div>
+    <div>
+      <h1 id="done-title">Connected</h1>
+      <p id="done-sub">You can keep chatting — it's now the active organization.</p>
+    </div>
+  </div>
+  <div id="fallback-state" class="fallback hidden">
+    <h1>Connect another organization</h1>
+    <p class="sub" id="fallback-text">Open the secure connect page to add the organization's API key.</p>
+    <p class="status muted">The link expires in 15 minutes. Once you're done, come back here.</p>
+  </div>
+</div>
+<script>/*__BUNDLE__*/</script>
+</body>
+</html>

@@ -127,7 +127,7 @@ Clients register via **Dynamic Client Registration** (`POST /register`). Authori
 A connected member can attach several Orderful organizations and switch between them from chat — one is "active" at a time and all tool calls use it. The AI drives this with four tools:
 
 - `list_organizations` — show connected orgs and which is active.
-- `connect_organization` — returns a secure, one-time link (expires in 15 min); the member opens it, pastes that org's API key, and it becomes active. Keys are entered on the page, never in chat.
+- `connect_organization` — on clients with MCP Apps support (claude.ai, Claude Desktop) this renders a secure form right in the conversation: paste the org's API key there and it's verified and activated on the spot. The key goes straight to the connector through an app-only tool the model can't see or call. Other clients get a secure one-time link (expires in 15 min) to a browser page instead, and the assistant polls `wait_for_organization_connection` until it's done. Either way, keys never enter the model's context.
 - `switch_organization` — make a connected org active (by name or id).
 - `disconnect_organization` — remove one.
 

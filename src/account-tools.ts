@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
 import * as z from 'zod/v4';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { credentialStore } from './credential-store.js';
 import { ok, err } from './tools/utils.js';
+import { getOrganizationInfo } from './api.js';
 import {
   listOrgs,
+  addOrgToProfile,
   setActiveOrg,
   removeOrgFromProfile,
   createConnectToken,
@@ -11,6 +15,12 @@ import {
   type OrgSummary,
 } from './oauth-store.js';
 import { ORDERFUL_CONNECT_PATH } from './oauth-provider.js';
+
+// MCP Apps view for connect_organization: an inline form where the member
+// pastes the org's API key directly in the conversation. Hosts without apps
+// support fall back to the one-time link + wait tool flow.
+const CONNECT_VIEW_URI = 'ui://orderful/connect.html';
+const connectViewHtml = () => readFileSync(new URL('./ui/connect.html', import.meta.url), 'utf8');
 
 const profileId = () => credentialStore.getStore()?.PROFILE_ID;
 const NO_PROFILE = 'Organization management is only available on the hosted server.';
@@ -51,16 +61,28 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
     },
   );
 
-  server.registerTool(
+  registerAppResource(
+    server,
+    'Orderful Connect Organization View',
+    CONNECT_VIEW_URI,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => ({
+      contents: [{ uri: CONNECT_VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: connectViewHtml() }],
+    }),
+  );
+
+  registerAppTool(
+    server,
     'orderful_connect_organization',
     {
       annotations: { readOnlyHint: false, destructiveHint: false },
       title: 'Connect Another Organization',
       description:
-        'Start connecting another Orderful organization. Present the returned message to the user exactly as ' +
-        'given (it is written for them and guides them through the steps), then call ' +
-        'wait_for_organization_connection with connect_token to detect when they finish. Do not paraphrase the ' +
-        'message or expose the connect_token to the user.',
+        'Start connecting another Orderful organization. On clients that render the interactive form, the user ' +
+        'enters the API key right in the conversation and you are told when they finish — do not show the link. ' +
+        'If the user says they see no form, present the returned message verbatim (it is markdown written for ' +
+        'them) and then call wait_for_organization_connection with connect_token. Never expose the connect_token.',
+      _meta: { ui: { resourceUri: CONNECT_VIEW_URI } },
     },
     async () => {
       const pid = profileId();
@@ -68,18 +90,57 @@ export function registerAccountTools(server: McpServer, baseUrl: URL): void {
       const token = await createConnectToken(pid);
       const link = new URL(ORDERFUL_CONNECT_PATH, baseUrl);
       link.searchParams.set('t', token);
-      return ok({
-        connect_token: token,
-        message:
-          `**[Connect your organization](${link.href})** — click the link above, then:\n\n` +
-          `1. Paste the API key for the organization you want to add.\n` +
-          `2. Submit — the organization is verified and set as active.\n` +
-          `3. Come back to this chat; I'll pick up the connection automatically.\n\n` +
-          `_The link is secure and expires in 15 minutes._`,
-        hint:
-          'Show `message` to the user verbatim (it is markdown with a clickable link), then call ' +
-          'wait_for_organization_connection with the connect_token above.',
-      });
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              connect_token: token,
+              message:
+                `**[Connect your organization](${link.href})** — click the link above, then:\n\n` +
+                `1. Paste the API key for the organization you want to add.\n` +
+                `2. Submit — the organization is verified and set as active.\n` +
+                `3. Come back to this chat; I'll pick up the connection automatically.\n\n` +
+                `_The link is secure and expires in 15 minutes._`,
+              hint:
+                'If an interactive form is shown to the user, wait for its result instead of sharing the link. ' +
+                'Otherwise show `message` verbatim and call wait_for_organization_connection with connect_token.',
+            }, null, 2),
+          },
+        ],
+        // The view reads the fallback link from here; the key never appears in it.
+        structuredContent: { connect_url: link.href } as Record<string, unknown>,
+      };
+    },
+  );
+
+  // Called by the connect view only (visibility: app) — the model never sees
+  // this tool or the API key that flows through it. Runs on the member's
+  // authenticated session, so no connect token is needed.
+  server.registerTool(
+    'orderful_submit_organization_key',
+    {
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      title: 'Submit Organization Key (in-app)',
+      description: 'Internal: used by the connect form to add an organization with its API key.',
+      inputSchema: {
+        api_key: z.string().min(1).describe('The Orderful API key of the organization to connect'),
+      },
+      _meta: { ui: { visibility: ['app'] } },
+    },
+    async ({ api_key }) => {
+      const pid = profileId();
+      if (!pid) return err(NO_PROFILE);
+      const org = await getOrganizationInfo(api_key.trim());
+      if (!org) return err('That Orderful API key was rejected. Check it and try again.');
+      const added = await addOrgToProfile(pid, org.id, org.name, api_key.trim());
+      if (!added) return err('Your session is no longer valid — reconnect Orderful from Claude.');
+      return {
+        content: [
+          { type: 'text' as const, text: `${org.name} is now connected and set as the active organization.` },
+        ],
+        structuredContent: { connected: true, organization: org.name } as Record<string, unknown>,
+      };
     },
   );
 

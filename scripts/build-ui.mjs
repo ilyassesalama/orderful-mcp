@@ -3,7 +3,7 @@
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
-const VIEWS = ['transactions'];
+const VIEWS = ['transactions', 'connect'];
 
 mkdirSync('dist/ui', { recursive: true });
 
