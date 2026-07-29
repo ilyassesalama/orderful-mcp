@@ -84,6 +84,8 @@ async function startHttp() {
   const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(resourceServerUrl);
 
   const app = express();
+  const trustProxy = process.env.TRUST_PROXY ?? '1';
+  app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
   app.use(securityHeaders);
 
   type Res = import('express').Response;

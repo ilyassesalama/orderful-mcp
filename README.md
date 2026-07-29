@@ -93,6 +93,7 @@ This exposes:
 | `OAUTH_ENCRYPTION_KEY` | recommended | Secret used to encrypt stored Orderful keys at rest (AES-256-GCM). Generate once (`openssl rand -hex 32`) and keep it stable — if it changes, all issued tokens become invalid and members must reconnect. If unset, a random per-process key is used (tokens won't survive a restart). |
 | `REDIS_URL` | recommended (prod) | When set, OAuth state (clients, codes, tokens) is stored in Redis instead of in-process memory. This lets tokens survive restarts/redeploys and lets you run multiple instances. If unset, falls back to an in-memory store (fine for local dev / a single instance). |
 | `OAUTH_NAMESPACE` | no | Prefix for all Redis keys (default `orderful-mcp`). Give each MCP server a distinct value so several can share one Redis instance without colliding — e.g. `orderful-mcp`, `acme-crm-mcp`, etc. |
+| `TRUST_PROXY` | no | Express `trust proxy` value (default `1` — one TLS-terminating proxy hop, correct for Railway and similar). Set to the number of proxy hops in front of the server, or an Express value like `loopback`; affects which client IP rate limiting keys on. |
 
 ### How a team connects
 
