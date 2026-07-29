@@ -92,11 +92,65 @@ function rowText(tx: Tx): string {
     .toLowerCase();
 }
 
-function render(): void {
+// The shell (header, input, table skeleton, footer) is built once; only the
+// rows re-render on filter changes, so the input keeps focus and caret.
+let shellBuilt = false;
+
+function buildShell(): void {
+  root.innerHTML = `
+    <header>
+      <h1>Transactions</h1>
+      <span class="count" id="count"></span>
+      <input id="filter" type="search" placeholder="Filter…" aria-label="Filter transactions">
+    </header>
+    <div class="frame" id="frame">
+      <div class="table-wrap" id="scroller">
+        <table>
+          <thead><tr>
+            <th>Type</th><th>Sender → Receiver</th><th>Stream</th>
+            <th>Validation</th><th>Delivery</th><th>Ack</th><th>Created</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="shade bottom"></div>
+      <div class="shade left"></div>
+      <div class="shade right"></div>
+    </div>
+    <footer>
+      <span>Click a row to ask Claude about it</span>
+      <span id="more"></span>
+    </footer>`;
+
+  const input = document.getElementById('filter') as HTMLInputElement;
+  input.addEventListener('input', () => {
+    filter = input.value.trim().toLowerCase();
+    renderRows();
+  });
+
+  const scroller = document.getElementById('scroller')!;
+  scroller.addEventListener('scroll', updateShades, { passive: true });
+  new ResizeObserver(updateShades).observe(scroller);
+  shellBuilt = true;
+}
+
+function updateShades(): void {
+  const scroller = document.getElementById('scroller');
+  const frame = document.getElementById('frame');
+  if (!scroller || !frame) return;
+  const fuzz = 1; // sub-pixel scroll positions
+  frame.classList.toggle('can-up', scroller.scrollTop > fuzz);
+  frame.classList.toggle('can-down', scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - fuzz);
+  frame.classList.toggle('can-left', scroller.scrollLeft > fuzz);
+  frame.classList.toggle('can-right', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - fuzz);
+}
+
+function renderRows(): void {
+  if (!shellBuilt) buildShell();
   const all = page.data ?? [];
   const rows = filter ? all.filter((tx) => rowText(tx).includes(filter)) : all;
 
-  const body = rows.length
+  document.getElementById('rows')!.innerHTML = rows.length
     ? rows
         .map((tx) => {
           const type = typeParts(tx.type?.name);
@@ -113,33 +167,12 @@ function render(): void {
         .join('')
     : `<tr><td colspan="7"><div class="empty">${all.length ? 'No transactions match the filter.' : 'No transactions found.'}</div></td></tr>`;
 
-  const hasMore = Boolean(page.metadata?.nextCursor);
-  root.innerHTML = `
-    <header>
-      <h1>Transactions</h1>
-      <span class="count">${rows.length === all.length ? all.length : `${rows.length} of ${all.length}`}</span>
-      <input id="filter" type="search" placeholder="Filter…" value="${esc(filter)}" aria-label="Filter transactions">
-    </header>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Type</th><th>Sender → Receiver</th><th>Stream</th>
-          <th>Validation</th><th>Delivery</th><th>Ack</th><th>Created</th>
-        </tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-    </div>
-    <footer>
-      <span>Click a row to ask Claude about it</span>
-      <span>${hasMore ? 'More available — ask Claude for the next page' : ''}</span>
-    </footer>`;
-
-  const input = document.getElementById('filter') as HTMLInputElement;
-  input.addEventListener('input', () => {
-    filter = input.value.trim().toLowerCase();
-    render();
-    (document.getElementById('filter') as HTMLInputElement).focus();
-  });
+  document.getElementById('count')!.textContent =
+    rows.length === all.length ? String(all.length) : `${rows.length} of ${all.length}`;
+  document.getElementById('more')!.textContent = page.metadata?.nextCursor
+    ? 'More available — ask Claude for the next page'
+    : '';
+  updateShades();
 }
 
 const app = new App({ name: 'Orderful Transactions', version: '1.0.0' }, {});
@@ -157,7 +190,7 @@ app.ontoolresult = (params) => {
       page = {};
     }
   }
-  render();
+  renderRows();
 };
 
 app.onhostcontextchanged = (ctx) => {
