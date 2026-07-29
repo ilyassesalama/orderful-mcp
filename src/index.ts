@@ -58,6 +58,7 @@ async function startHttp() {
   );
   const { securityHeaders, rateLimitMiddleware, JSON_LIMIT } = await import('./http-security.js');
   const {
+    OAUTH_ISSUER,
     orderfulOAuthProvider,
     orderfulLoginSubmitHandler,
     ORDERFUL_LOGIN_SUBMIT_PATH,
@@ -76,9 +77,7 @@ async function startHttp() {
   const port = process.env.PORT || 3000;
 
   // OAuth issuer — must be the public HTTPS URL in production.
-  const baseUrl = new URL(
-    process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || `http://localhost:${port}`,
-  );
+  const baseUrl = OAUTH_ISSUER;
 
   const mcpPath = process.env.MCP_PATH || '/mcp';
   const resourceServerUrl = new URL(mcpPath, baseUrl);

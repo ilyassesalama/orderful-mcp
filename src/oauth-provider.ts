@@ -30,6 +30,11 @@ import {
   consumeConnectToken,
 } from './oauth-store.js';
 
+// The OAuth issuer identifier — the public HTTPS base URL of this server.
+export const OAUTH_ISSUER = new URL(
+  process.env.OAUTH_ISSUER_URL || process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`,
+);
+
 export const ORDERFUL_LOGIN_SUBMIT_PATH = '/oauth/orderful/submit';
 export const ORDERFUL_CONNECT_PATH = '/oauth/orderful/connect';
 export const ORDERFUL_CONNECT_SUBMIT_PATH = '/oauth/orderful/connect/submit';
@@ -282,6 +287,7 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
 
   const url = new URL(redirectUri);
   url.searchParams.set('code', code);
+  url.searchParams.set('iss', OAUTH_ISSUER.href); // RFC 9207
   if (state !== undefined) url.searchParams.set('state', state);
 
   if (wantsJson) {

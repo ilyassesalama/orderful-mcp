@@ -114,6 +114,10 @@ The MCP endpoint also applies per-IP rate limiting and a 1 MB request size limit
 
 > **Per-user identity, no shared secret.** Because each member authenticates with their own key via OAuth, there's no `?key=` in the URL to leak across the team, and a member's key is never visible to anyone else. Rotate a key in Orderful at any time; that member just re-connects.
 
+### OAuth details
+
+Clients register via **Dynamic Client Registration** (`POST /register`). Authorization responses include the `iss` parameter ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207)) so clients can verify the issuer before redeeming the code. The MCP endpoint itself is stateless — a fresh server instance per request, no `Mcp-Session-Id` affinity — so it scales horizontally and is ready for the session-free model of the MCP `2026-07-28` spec revision.
+
 ### Multiple organizations
 
 A connected member can attach several Orderful organizations and switch between them from chat — one is "active" at a time and all tool calls use it. The AI drives this with four tools:
