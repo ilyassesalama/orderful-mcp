@@ -364,6 +364,19 @@ export async function consumeConnectToken(token: string): Promise<string | undef
   return kv.take(connectKey(token));
 }
 
+// Completion markers let the wait tool give a definitive answer regardless of
+// which flow consumed the token (browser page or the inline MCP Apps form).
+const connectDoneKey = (token: string) => `${PREFIX}connectDone:${token}`;
+const CONNECT_DONE_TTL_MS = 10 * 60_000;
+
+export async function markConnectDone(token: string, orgName: string): Promise<void> {
+  await kv.set(connectDoneKey(token), orgName, CONNECT_DONE_TTL_MS);
+}
+
+export async function getConnectDone(token: string): Promise<string | undefined> {
+  return kv.get(connectDoneKey(token));
+}
+
 // ── Download links (temporary tokenized file downloads, HTTP mode) ──
 // The tool mints a token bound to an Orderful endpoint + the caller's key;
 // GET /downloads/:token proxies the file. Reusable until it expires (links

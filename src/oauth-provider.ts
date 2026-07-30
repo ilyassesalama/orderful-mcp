@@ -28,6 +28,7 @@ import {
   createConnectToken,
   peekConnectToken,
   consumeConnectToken,
+  markConnectDone,
 } from './oauth-store.js';
 
 // The OAuth issuer identifier — the public HTTPS base URL of this server.
@@ -297,7 +298,29 @@ export const orderfulLoginSubmitHandler: RequestHandler = async (req: Request, r
   res.redirect(302, url.href);
 };
 
-// ── Connect another org to an existing profile (via a one-time link) ──
+// ── Connect another org to an existing profile ──
+// One implementation for both entry points: the browser connect page below and
+// the inline MCP Apps form (account-tools' submit tool). Validates the key,
+// attaches the org, and resolves the wait tool via the connect-done marker.
+export async function connectOrgWithKey(
+  profileId: string,
+  orderfulKey: string,
+  connectToken?: string,
+): Promise<{ orgName: string } | { error: string }> {
+  const org = await getOrganizationInfo(orderfulKey);
+  if (!org) return { error: 'That Orderful API key was rejected. Check it and try again.' };
+  const added = await addOrgToProfile(profileId, org.id, org.name, orderfulKey);
+  if (!added) return { error: 'Your session is no longer valid — reconnect Orderful from Claude.' };
+  if (connectToken && (await peekConnectToken(connectToken)) === profileId) {
+    // Marker before consume: the wait tool checks the marker first, so this
+    // order leaves no instant where the token is gone but the marker missing.
+    await markConnectDone(connectToken, org.name);
+    await consumeConnectToken(connectToken);
+  }
+  return { orgName: org.name };
+}
+
+// ── Connect another org via the one-time browser link ──
 export const orderfulConnectPageHandler: RequestHandler = async (req: Request, res: Response) => {
   const t = typeof req.query.t === 'string' ? req.query.t : '';
   const profileId = t ? await peekConnectToken(t) : undefined;
@@ -355,20 +378,13 @@ export const orderfulConnectSubmitHandler: RequestHandler = async (req: Request,
     return;
   }
 
-  const org = await getOrganizationInfo(orderfulKey);
-  if (!org) {
-    fail('That Orderful API key was rejected. Check it and try again.');
+  const result = await connectOrgWithKey(profileId, orderfulKey, t);
+  if ('error' in result) {
+    fail(result.error);
     return;
   }
 
-  const added = await addOrgToProfile(profileId, org.id, org.name, orderfulKey);
-  if (!added) {
-    fail('Your session is no longer valid — reconnect Orderful from Claude.');
-    return;
-  }
-  await consumeConnectToken(t);
-
-  const doneUrl = `${ORDERFUL_CONNECT_DONE_PATH}?org=${encodeURIComponent(org.name)}`;
+  const doneUrl = `${ORDERFUL_CONNECT_DONE_PATH}?org=${encodeURIComponent(result.orgName)}`;
   if (wantsJson) {
     res.json({ redirect: doneUrl });
     return;

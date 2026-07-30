@@ -5,7 +5,8 @@
 // app-only tool orderful_submit_organization_key on the authenticated
 // session. If the host can't proxy server tool calls, we degrade to the
 // one-time browser link that connect_organization also returned.
-import { App, applyDocumentTheme } from '@modelcontextprotocol/ext-apps';
+import { App } from '@modelcontextprotocol/ext-apps';
+import { followHostTheme, applyInitialTheme } from './theme.js';
 
 const el = (id: string) => document.getElementById(id)!;
 
@@ -31,9 +32,7 @@ app.ontoolresult = (params) => {
   if (!el('fallback-state').classList.contains('hidden')) renderFallback();
 };
 
-app.onhostcontextchanged = (ctx) => {
-  if (ctx.theme) applyDocumentTheme(ctx.theme);
-};
+followHostTheme(app);
 
 function renderFallback(): void {
   show('fallback');
@@ -70,9 +69,12 @@ async function submit(): Promise<void> {
   input.disabled = true;
   setStatus('Verifying with Orderful…');
   try {
+    // Pass the connect token so the assistant's wait_for_organization_connection
+    // poll resolves the moment this submit succeeds.
+    const token = connectUrl ? new URL(connectUrl).searchParams.get('t') : undefined;
     const result = await app.callServerTool({
       name: 'orderful_submit_organization_key',
-      arguments: { api_key: key },
+      arguments: { api_key: key, ...(token ? { connect_token: token } : {}) },
     });
     if (result.isError) {
       const text = result.content?.find((c): c is { type: 'text'; text: string } => c.type === 'text');
@@ -91,7 +93,7 @@ async function submit(): Promise<void> {
           content: [
             {
               type: 'text',
-              text: `The user connected the Orderful organization "${org ?? 'unknown'}" via the inline form. It is now active — no need to share the connect link or call wait_for_organization_connection.`,
+              text: `The user connected the Orderful organization "${org ?? 'unknown'}" via the inline form. It is now active — wait_for_organization_connection will confirm it; never share the connect link.`,
             },
           ],
         })
@@ -108,8 +110,7 @@ async function submit(): Promise<void> {
 void app
   .connect()
   .then(() => {
-    const theme = app.getHostContext()?.theme;
-    if (theme) applyDocumentTheme(theme);
+    applyInitialTheme(app);
     // No server-tool proxying on this host → the inline form can't work;
     // degrade to the browser link flow.
     if (!app.getHostCapabilities()?.serverTools) renderFallback();
