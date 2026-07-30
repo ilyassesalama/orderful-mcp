@@ -1,6 +1,7 @@
 // Iframe script for the transactions MCP App view. Bundled by
 // scripts/build-ui.mjs and inlined into transactions.html.
-import { App, applyDocumentTheme } from '@modelcontextprotocol/ext-apps';
+import { App } from '@modelcontextprotocol/ext-apps';
+import { followHostTheme, applyInitialTheme } from './theme.js';
 
 interface Party {
   isaId?: string;
@@ -193,9 +194,7 @@ app.ontoolresult = (params) => {
   renderRows();
 };
 
-app.onhostcontextchanged = (ctx) => {
-  if (ctx.theme) applyDocumentTheme(ctx.theme);
-};
+followHostTheme(app);
 
 root.addEventListener('click', (event) => {
   const tr = (event.target as HTMLElement).closest('tr[data-id]');
@@ -211,10 +210,7 @@ root.addEventListener('click', (event) => {
 
 void app
   .connect()
-  .then(() => {
-    const theme = app.getHostContext()?.theme;
-    if (theme) applyDocumentTheme(theme);
-  })
+  .then(() => applyInitialTheme(app))
   .catch((error: unknown) => {
     root.innerHTML = `<div class="empty">Could not connect to the host: ${esc(error instanceof Error ? error.message : String(error))}</div>`;
   });

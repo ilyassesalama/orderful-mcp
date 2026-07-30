@@ -5,27 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Orderful Transactions</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #faf9f7; --fg: #1a1815; --muted: #78716c; --line: #e7e2da;
-    --row-hover: rgba(0, 0, 0, 0.03); --chip-bg: rgba(120, 113, 108, 0.12);
-    --good: #1a7f4b; --good-bg: rgba(34, 160, 90, 0.13);
-    --bad: #b3382c; --bad-bg: rgba(214, 69, 53, 0.12);
-    --warn: #8a6116; --warn-bg: rgba(212, 160, 23, 0.15);
-    font-size: 14px;
-  }
-  :root[data-theme="dark"] {
-    --bg: #0e0d0c; --fg: #f2efe9; --muted: #9c948b; --line: #29251f;
-    --row-hover: rgba(255, 255, 255, 0.045);
-    --good: #4fc98a; --bad: #f0806f; --warn: #dcae4a;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0e0d0c; --fg: #f2efe9; --muted: #9c948b; --line: #29251f;
-      --row-hover: rgba(255, 255, 255, 0.045);
-      --good: #4fc98a; --bad: #f0806f; --warn: #dcae4a;
-    }
-  }
+  /*__THEME__*/
   * { box-sizing: border-box; }
   body {
     margin: 0; background: transparent; color: var(--fg);

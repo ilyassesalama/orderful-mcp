@@ -4,9 +4,9 @@ import { randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:
 import { Redis } from 'ioredis';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
-export const AUTH_CODE_TTL_MS = 60_000; // 1 minute
-export const ACCESS_TOKEN_TTL_MS = 60 * 60_000; // 1 hour
-export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
+const AUTH_CODE_TTL_MS = 60_000; // 1 minute
+const ACCESS_TOKEN_TTL_MS = 60 * 60_000; // 1 hour
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000; // 30 days
 const CLIENT_TTL_MS = 365 * 24 * 60 * 60_000; // clients effectively persist
 
 // Set a stable OAUTH_ENCRYPTION_KEY in production, or tokens won't survive a restart.
@@ -270,7 +270,7 @@ export async function consumeAuthCode(code: string): Promise<
 }
 
 // ── Tokens ───────────────────────────────────────
-export interface IssuedTokens {
+interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
   expiresInSec: number;
@@ -300,7 +300,7 @@ export async function issueTokens(input: {
   return { accessToken, refreshToken, expiresInSec: Math.floor(ACCESS_TOKEN_TTL_MS / 1000) };
 }
 
-export interface VerifiedToken {
+interface VerifiedToken {
   clientId: string;
   scopes: string[];
   resource?: string;
@@ -400,7 +400,7 @@ export async function getDownloadToken(
 // Bundle tokens: one link that zips several files together.
 const bundleKey = (token: string) => `${PREFIX}dlz:${token}`;
 
-export interface BundleFile {
+interface BundleFile {
   endpoint: string;
   filenameBase: string;
 }
