@@ -118,7 +118,7 @@ async function startHttp() {
   app.get(ORDERFUL_CONNECT_DONE_PATH, orderfulConnectDoneHandler);
 
   // Fresh server per request; the member's key arrives in req.auth.extra.
-  app.all(
+  app.post(
     mcpPath,
     rateLimitMiddleware,
     requireBearerAuth({ verifier: orderfulOAuthProvider, resourceMetadataUrl }),
@@ -140,6 +140,12 @@ async function startHttp() {
           registerAccountTools(server, baseUrl);
           const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
           await server.connect(transport);
+          // Stateless: tear down this request's server+transport when the response closes,
+          // or the per-request McpServer graph (and any SSE keep-alive timer) leaks until OOM.
+          res.on('close', () => {
+            transport.close();
+            server.close();
+          });
           await transport.handleRequest(req, res, req.body);
         });
       } catch (err) {
@@ -149,6 +155,12 @@ async function startHttp() {
       }
     },
   );
+
+  // Stateless server: no session to resume, so GET (SSE) and DELETE have nothing to do.
+  const methodNotAllowed = (_req: unknown, res: Res) =>
+    res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null });
+  app.get(mcpPath, methodNotAllowed);
+  app.delete(mcpPath, methodNotAllowed);
 
   // Temporary tokenized file downloads (e.g. partner guideline documents).
   // The token was minted by a tool call and is bound to one Orderful endpoint
